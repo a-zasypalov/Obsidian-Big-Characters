@@ -1,4 +1,12 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import {
+  App,
+  MarkdownRenderer,
+  Notice,
+  Plugin,
+  PluginSettingTab,
+  Setting,
+  type MarkdownPostProcessorContext
+} from "obsidian";
 import { pinyin } from "pinyin-pro";
 
 const HANZI_PATTERN = /\p{Script=Han}+/gu;
@@ -6,6 +14,8 @@ const MARKER_CLASS = "characters-pronunciation-guide";
 const MARKER_SELECTOR = `span.${MARKER_CLASS}`;
 const SPAN_OPENING = `<span class="${MARKER_CLASS}">`;
 const SPAN_CLOSING = "</span>";
+const MARKER_SOURCE_PATTERN =
+  /(<span\s+class=["']characters-pronunciation-guide["'][^>]*>)([\s\S]*?)(<\/span>)/giu;
 
 function markerSelector(scope: string): string {
   return `${scope} ${MARKER_SELECTOR}`;
@@ -145,6 +155,19 @@ function renderInlineMarkdown(element: HTMLElement): void {
   }
 }
 
+function protectMarkerMarkdown(markdown: string): string {
+  MARKER_SOURCE_PATTERN.lastIndex = 0;
+  return markdown.replace(
+    MARKER_SOURCE_PATTERN,
+    (whole, openingTag: string, content: string, closingTag: string) => {
+      if (!content.includes("*")) return whole;
+      const formatted = document.createElement("span");
+      appendInlineMarkdown(formatted, content);
+      return `${openingTag}${formatted.innerHTML}${closingTag}`;
+    }
+  );
+}
+
 function renderHanziPinyin(element: HTMLElement): void {
   if (element.dataset.hanziPinyinProcessed === "true") return;
   element.dataset.hanziPinyinProcessed = "true";
@@ -204,12 +227,8 @@ export default class HanziPinyinPlugin extends Plugin {
       editorCallback: (editor) => this.toggleSelection(editor)
     });
 
-    this.registerMarkdownPostProcessor((element) => {
-      for (const zhElement of element.querySelectorAll<HTMLElement>(MARKER_SELECTOR)) {
-        if (this.settings.showPinyinInReadingView) {
-          renderHanziPinyin(zhElement);
-        }
-      }
+    this.registerMarkdownPostProcessor((element, context) => {
+      void this.processReadingSection(element, context);
     });
 
     this.app.workspace.onLayoutReady(() => {
@@ -299,6 +318,48 @@ export default class HanziPinyinPlugin extends Plugin {
     }
 
     editor.replaceSelection(`${SPAN_OPENING}${selection}${SPAN_CLOSING}`);
+  }
+
+  private async processReadingSection(
+    element: HTMLElement,
+    context: MarkdownPostProcessorContext
+  ): Promise<void> {
+    if (element.closest("[data-cpg-safe-render]")) return;
+
+    const section = context.getSectionInfo(element);
+    const safeMarkdown = section ? protectMarkerMarkdown(section.text) : null;
+
+    if (section && safeMarkdown && safeMarkdown !== section.text) {
+      const temporaryElement = document.createElement("div");
+      temporaryElement.dataset.cpgSafeRender = "true";
+      await MarkdownRenderer.render(
+        this.app,
+        safeMarkdown,
+        temporaryElement,
+        context.sourcePath,
+        this
+      );
+
+      const markerElements = Array.from(
+        temporaryElement.querySelectorAll<HTMLElement>(MARKER_SELECTOR)
+      );
+      if (element.tagName === "P") {
+        element.replaceWith(...Array.from(temporaryElement.childNodes));
+      } else {
+        element.replaceChildren(...Array.from(temporaryElement.childNodes));
+      }
+
+      if (this.settings.showPinyinInReadingView) {
+        for (const marker of markerElements) renderHanziPinyin(marker);
+      }
+      return;
+    }
+
+    if (this.settings.showPinyinInReadingView) {
+      for (const marker of element.querySelectorAll<HTMLElement>(MARKER_SELECTOR)) {
+        renderHanziPinyin(marker);
+      }
+    }
   }
 
   private refreshRenderedPinyin(): void {

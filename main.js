@@ -24343,6 +24343,7 @@ var MARKER_CLASS = "characters-pronunciation-guide";
 var MARKER_SELECTOR = `span.${MARKER_CLASS}`;
 var SPAN_OPENING = `<span class="${MARKER_CLASS}">`;
 var SPAN_CLOSING = "</span>";
+var MARKER_SOURCE_PATTERN = /(<span\s+class=["']characters-pronunciation-guide["'][^>]*>)([\s\S]*?)(<\/span>)/giu;
 function markerSelector(scope) {
   return `${scope} ${MARKER_SELECTOR}`;
 }
@@ -24448,6 +24449,18 @@ function renderInlineMarkdown(element) {
     textNode.replaceWith(...Array.from(wrapper.childNodes));
   }
 }
+function protectMarkerMarkdown(markdown) {
+  MARKER_SOURCE_PATTERN.lastIndex = 0;
+  return markdown.replace(
+    MARKER_SOURCE_PATTERN,
+    (whole, openingTag, content, closingTag) => {
+      if (!content.includes("*")) return whole;
+      const formatted = document.createElement("span");
+      appendInlineMarkdown(formatted, content);
+      return `${openingTag}${formatted.innerHTML}${closingTag}`;
+    }
+  );
+}
 function renderHanziPinyin(element) {
   if (element.dataset.hanziPinyinProcessed === "true") return;
   element.dataset.hanziPinyinProcessed = "true";
@@ -24497,12 +24510,8 @@ var HanziPinyinPlugin = class extends import_obsidian.Plugin {
       name: "Toggle selection as Hanzi pinyin",
       editorCallback: (editor) => this.toggleSelection(editor)
     });
-    this.registerMarkdownPostProcessor((element) => {
-      for (const zhElement of element.querySelectorAll(MARKER_SELECTOR)) {
-        if (this.settings.showPinyinInReadingView) {
-          renderHanziPinyin(zhElement);
-        }
-      }
+    this.registerMarkdownPostProcessor((element, context) => {
+      void this.processReadingSection(element, context);
     });
     this.app.workspace.onLayoutReady(() => {
       this.livePreviewObserver = new MutationObserver(() => {
@@ -24573,6 +24582,39 @@ var HanziPinyinPlugin = class extends import_obsidian.Plugin {
       }
     }
     editor.replaceSelection(`${SPAN_OPENING}${selection}${SPAN_CLOSING}`);
+  }
+  async processReadingSection(element, context) {
+    if (element.closest("[data-cpg-safe-render]")) return;
+    const section = context.getSectionInfo(element);
+    const safeMarkdown = section ? protectMarkerMarkdown(section.text) : null;
+    if (section && safeMarkdown && safeMarkdown !== section.text) {
+      const temporaryElement = document.createElement("div");
+      temporaryElement.dataset.cpgSafeRender = "true";
+      await import_obsidian.MarkdownRenderer.render(
+        this.app,
+        safeMarkdown,
+        temporaryElement,
+        context.sourcePath,
+        this
+      );
+      const markerElements = Array.from(
+        temporaryElement.querySelectorAll(MARKER_SELECTOR)
+      );
+      if (element.tagName === "P") {
+        element.replaceWith(...Array.from(temporaryElement.childNodes));
+      } else {
+        element.replaceChildren(...Array.from(temporaryElement.childNodes));
+      }
+      if (this.settings.showPinyinInReadingView) {
+        for (const marker of markerElements) renderHanziPinyin(marker);
+      }
+      return;
+    }
+    if (this.settings.showPinyinInReadingView) {
+      for (const marker of element.querySelectorAll(MARKER_SELECTOR)) {
+        renderHanziPinyin(marker);
+      }
+    }
   }
   refreshRenderedPinyin() {
     for (const zhElement of document.querySelectorAll(
