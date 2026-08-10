@@ -1,6 +1,6 @@
 /* Standard <span class="characters-pronunciation-guide">...</span> styling. */
 .characters-pronunciation-guide {
-  display: inline;
+  display: inline-block;
   font-family: var(
     --hanzi-pinyin-character-font,
     "Kaiti SC", "STKaiti", "KaiTi", serif
@@ -8,6 +8,8 @@
   font-size: var(--hanzi-pinyin-character-size, 2.5em);
   font-weight: 500;
   line-height: 1;
+  margin-bottom: 0.12em;
+  vertical-align: baseline;
 }
 
 .hanzi-pinyin-ruby {
