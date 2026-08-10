@@ -22,18 +22,18 @@
   background: transparent !important;
   color: inherit;
   font-family: inherit !important;
-    font-size: inherit !important;
-    font-weight: inherit !important;
-    line-height: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  line-height: inherit !important;
 }
 
 .hanzi-pinyin-ruby > rt {
-    font-family: var(
-        --hanzi-pinyin-annotation-font,
-        -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif
-    );
-    font-size: var(--hanzi-pinyin-annotation-size, 0.35em);
-    font-weight: 200;
-    line-height: 1;
-    user-select: none;
+  font-family: var(
+    --hanzi-pinyin-annotation-font,
+    -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif
+  );
+  font-size: var(--hanzi-pinyin-annotation-size, 0.35em);
+  font-weight: 200;
+  line-height: 1;
+  user-select: none;
 }

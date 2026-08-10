@@ -1,24 +1,37 @@
 import {
   App,
+  MarkdownRenderChild,
   MarkdownRenderer,
+  MarkdownView,
   Notice,
   Plugin,
   PluginSettingTab,
   Setting,
   type MarkdownPostProcessorContext
 } from "obsidian";
-import { pinyin } from "pinyin-pro";
+import { BoundedStringCache } from "./bounded-cache";
+import {
+  MARKER_CLASS,
+  MARKER_SELECTOR,
+  SPAN_CLOSING,
+  SPAN_OPENING,
+  restoreMarkerSpans,
+  transformMarkerSource
+} from "./marker";
+import { unwrapCompleteMarker, wrapSelection } from "./selection";
 
 const HANZI_PATTERN = /\p{Script=Han}+/gu;
-const MARKER_CLASS = "characters-pronunciation-guide";
-const MARKER_SELECTOR = `span.${MARKER_CLASS}`;
-const SPAN_OPENING = `<span class="${MARKER_CLASS}">`;
-const SPAN_CLOSING = "</span>";
-const MARKER_SOURCE_PATTERN =
-  /(<span\s+class=["']characters-pronunciation-guide["'][^>]*>)([\s\S]*?)(<\/span>)/giu;
+const PINYIN_CACHE_CAPACITY = 256;
+const SETTINGS_SAVE_DELAY = 250;
+const ENGINE_GLOBAL_NAME = "CharactersPronunciationPinyin";
 
-function markerSelector(scope: string): string {
-  return `${scope} ${MARKER_SELECTOR}`;
+type PinyinFunction = (text: string, options: { toneType: "symbol" }) => string;
+type PinyinConverter = (text: string) => string;
+
+declare global {
+  interface Window {
+    CharactersPronunciationPinyin?: { pinyin: PinyinFunction };
+  }
 }
 
 interface HanziPinyinSettings {
@@ -39,11 +52,15 @@ const DEFAULT_SETTINGS: HanziPinyinSettings = {
   pinyinFont: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
 };
 
-function toPinyin(text: string): string {
-  return pinyin(text.trim(), { toneType: "symbol" });
+function markerSelector(scope: string): string {
+  return `${scope} ${MARKER_SELECTOR}`;
 }
 
-function appendRubyText(parent: HTMLElement, text: string): void {
+function hasHanzi(text: string): boolean {
+  return /\p{Script=Han}/u.test(text);
+}
+
+function appendRubyText(parent: HTMLElement, text: string, toPinyin: PinyinConverter): void {
   const fragment = document.createDocumentFragment();
   let lastIndex = 0;
   HANZI_PATTERN.lastIndex = 0;
@@ -76,15 +93,15 @@ function appendRubyText(parent: HTMLElement, text: string): void {
   parent.append(fragment);
 }
 
-function findClosingMarker(text: string, marker: string, from: number): number {
+function findEmphasisClosing(text: string, marker: string, from: number): number {
   let closing = text.indexOf(marker, from);
-  while (closing !== -1 && !/\S/.test(text[closing - 1] ?? "")) {
+  while (closing !== -1 && !/\S/u.test(text[closing - 1] ?? "")) {
     closing = text.indexOf(marker, closing + marker.length);
   }
   return closing;
 }
 
-function appendInlineMarkdown(parent: HTMLElement, text: string): void {
+function appendLivePreviewEmphasis(parent: HTMLElement, text: string): void {
   const markerPattern = /\*{1,3}(?=\S)/g;
   let cursor = 0;
 
@@ -98,7 +115,7 @@ function appendInlineMarkdown(parent: HTMLElement, text: string): void {
 
     const marker = opening[0];
     const contentStart = opening.index + marker.length;
-    const closing = findClosingMarker(text, marker, contentStart);
+    const closing = findEmphasisClosing(text, marker, contentStart);
     if (closing === -1) {
       parent.append(document.createTextNode(text.slice(cursor)));
       return;
@@ -111,16 +128,16 @@ function appendInlineMarkdown(parent: HTMLElement, text: string): void {
     const content = text.slice(contentStart, closing);
     if (marker === "*") {
       const italic = document.createElement("em");
-      appendInlineMarkdown(italic, content);
+      appendLivePreviewEmphasis(italic, content);
       parent.append(italic);
     } else if (marker === "**") {
       const bold = document.createElement("strong");
-      appendInlineMarkdown(bold, content);
+      appendLivePreviewEmphasis(bold, content);
       parent.append(bold);
     } else {
       const bold = document.createElement("strong");
       const italic = document.createElement("em");
-      appendInlineMarkdown(italic, content);
+      appendLivePreviewEmphasis(italic, content);
       bold.append(italic);
       parent.append(bold);
     }
@@ -129,14 +146,14 @@ function appendInlineMarkdown(parent: HTMLElement, text: string): void {
   }
 }
 
-function renderInlineMarkdown(element: HTMLElement): void {
+function renderLivePreviewEmphasis(element: HTMLElement): void {
   const textNodes: Text[] = [];
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
       if (
-        !/[\*]{1,3}/.test(node.textContent ?? "") ||
-        parent?.closest("code, pre, script, style")
+        !/[\*]{1,3}/u.test(node.textContent ?? "") ||
+        parent?.closest("code, pre, rt, ruby, script, style")
       ) {
         return NodeFilter.FILTER_REJECT;
       }
@@ -150,76 +167,93 @@ function renderInlineMarkdown(element: HTMLElement): void {
 
   for (const textNode of textNodes) {
     const wrapper = document.createElement("span");
-    appendInlineMarkdown(wrapper, textNode.textContent ?? "");
+    appendLivePreviewEmphasis(wrapper, textNode.textContent ?? "");
     textNode.replaceWith(...Array.from(wrapper.childNodes));
   }
 }
 
-function protectMarkerMarkdown(markdown: string): string {
-  MARKER_SOURCE_PATTERN.lastIndex = 0;
-  return markdown.replace(
-    MARKER_SOURCE_PATTERN,
-    (whole, openingTag: string, content: string, closingTag: string) => {
-      if (!content.includes("*")) return whole;
-      const formatted = document.createElement("span");
-      appendInlineMarkdown(formatted, content);
-      return `${openingTag}${formatted.innerHTML}${closingTag}`;
-    }
-  );
-}
+async function renderHanziPinyin(
+  element: HTMLElement,
+  getPinyin: () => Promise<PinyinConverter>,
+  shouldRender: () => boolean
+): Promise<void> {
+  if (
+    element.dataset.hanziPinyinProcessed === "true" ||
+    element.dataset.hanziPinyinLoading === "true" ||
+    !shouldRender() ||
+    !hasHanzi(element.textContent ?? "")
+  ) {
+    return;
+  }
 
-function renderHanziPinyin(element: HTMLElement): void {
-  if (element.dataset.hanziPinyinProcessed === "true") return;
-  element.dataset.hanziPinyinProcessed = "true";
+  element.dataset.hanziPinyinLoading = "true";
+  try {
+    const toPinyin = await getPinyin();
+    if (!element.isConnected || !shouldRender()) return;
+    if (element.closest(".markdown-source-view.mod-cm6")) renderLivePreviewEmphasis(element);
 
-  renderInlineMarkdown(element);
-
-  const textNodes: Text[] = [];
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      if (
-        !node.textContent ||
-        !/\p{Script=Han}/u.test(node.textContent) ||
-        parent?.closest("rt, code, pre, script, style")
-      ) {
-        return NodeFilter.FILTER_REJECT;
+    const textNodes: Text[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (
+          !node.textContent ||
+          !hasHanzi(node.textContent) ||
+          parent?.closest("rt, code, pre, script, style")
+        ) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
       }
-      return NodeFilter.FILTER_ACCEPT;
+    });
+
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      textNodes.push(node as Text);
     }
-  });
 
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    textNodes.push(node as Text);
-  }
+    for (const textNode of textNodes) {
+      const wrapper = document.createElement("span");
+      appendRubyText(wrapper, textNode.textContent ?? "", toPinyin);
+      textNode.replaceWith(...Array.from(wrapper.childNodes));
+    }
 
-  for (const textNode of textNodes) {
-    const wrapper = document.createElement("span");
-    appendRubyText(wrapper, textNode.textContent ?? "");
-    textNode.replaceWith(...Array.from(wrapper.childNodes));
+    element.dataset.hanziPinyinProcessed = "true";
+  } catch {
+    // The original Hanzi remains readable if the local engine cannot load.
+  } finally {
+    delete element.dataset.hanziPinyinLoading;
   }
 }
 
 function removeHanziPinyin(element: HTMLElement): void {
   for (const ruby of element.querySelectorAll<HTMLElement>("ruby.hanzi-pinyin-ruby")) {
-    const base = Array.from(ruby.children).find(
-      (child) => child.classList.contains("hanzi-pinyin-base")
+    const base = Array.from(ruby.children).find((child) =>
+      child.classList.contains("hanzi-pinyin-base")
     );
     if (base) ruby.replaceWith(...Array.from(base.childNodes));
   }
   delete element.dataset.hanziPinyinProcessed;
+  delete element.dataset.hanziPinyinLoading;
 }
 
 export default class HanziPinyinPlugin extends Plugin {
   settings: HanziPinyinSettings = DEFAULT_SETTINGS;
-  private livePreviewObserver: MutationObserver | null = null;
-  private livePreviewRenderTimer: number | null = null;
+  private readonly pinyinCache = new BoundedStringCache(PINYIN_CACHE_CAPACITY);
+  private pinyinEnginePromise: Promise<PinyinFunction> | null = null;
+  private pinyinLoadFailed = false;
+  private settingsSaveTimer: number | null = null;
+  private readonly livePreviewObservers = new Map<HTMLElement, MutationObserver>();
+  private readonly livePreviewRenderTimers = new Map<HTMLElement, number>();
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.applySettings();
     this.addSettingTab(new HanziPinyinSettingTab(this.app, this));
-    this.register(() => this.clearSettingsStyle());
+    this.register(() => {
+      this.clearSettingsStyle();
+      this.disconnectLivePreviewObservers();
+      this.flushSettingsSave();
+    });
 
     this.addCommand({
       id: "wrap-selection-as-hanzi-pinyin",
@@ -232,25 +266,25 @@ export default class HanziPinyinPlugin extends Plugin {
     });
 
     this.app.workspace.onLayoutReady(() => {
-      this.livePreviewObserver = new MutationObserver(() => {
-        this.scheduleLivePreviewRender();
-      });
-      this.livePreviewObserver.observe(document.body, { childList: true, subtree: true });
-      this.register(() => this.livePreviewObserver?.disconnect());
-      this.register(() => {
-        if (this.livePreviewRenderTimer !== null) {
-          window.clearTimeout(this.livePreviewRenderTimer);
-        }
-      });
+      this.refreshLivePreviewObservers();
+      this.registerEvent(
+        this.app.workspace.on("layout-change", () => this.refreshLivePreviewObservers())
+      );
       this.refreshRenderedPinyin();
     });
   }
 
-  async updateSettings(settings: Partial<HanziPinyinSettings>): Promise<void> {
+  updateSettings(settings: Partial<HanziPinyinSettings>): void {
+    const visibilityChanged =
+      (settings.showPinyinInLivePreview !== undefined &&
+        settings.showPinyinInLivePreview !== this.settings.showPinyinInLivePreview) ||
+      (settings.showPinyinInReadingView !== undefined &&
+        settings.showPinyinInReadingView !== this.settings.showPinyinInReadingView);
+
     this.settings = { ...this.settings, ...settings };
-    await this.saveData(this.settings);
     this.applySettings();
-    this.refreshRenderedPinyin();
+    this.scheduleSettingsSave();
+    if (visibilityChanged) this.refreshRenderedPinyin();
   }
 
   private async loadSettings(): Promise<void> {
@@ -276,6 +310,86 @@ export default class HanziPinyinPlugin extends Plugin {
     style.removeProperty("--hanzi-pinyin-annotation-font");
   }
 
+  private scheduleSettingsSave(): void {
+    if (this.settingsSaveTimer !== null) window.clearTimeout(this.settingsSaveTimer);
+    this.settingsSaveTimer = window.setTimeout(() => {
+      this.settingsSaveTimer = null;
+      void this.saveData(this.settings);
+    }, SETTINGS_SAVE_DELAY);
+  }
+
+  private flushSettingsSave(): void {
+    if (this.settingsSaveTimer === null) return;
+    window.clearTimeout(this.settingsSaveTimer);
+    this.settingsSaveTimer = null;
+    void this.saveData(this.settings);
+  }
+
+  private async getPinyinConverter(): Promise<PinyinConverter> {
+    const pinyin = await this.loadPinyinEngine();
+    return (text) => {
+      const cached = this.pinyinCache.get(text);
+      if (cached !== undefined) return cached;
+
+      const pronunciation = pinyin(text, { toneType: "symbol" });
+      this.pinyinCache.set(text, pronunciation);
+      return pronunciation;
+    };
+  }
+
+  private loadPinyinEngine(): Promise<PinyinFunction> {
+    if (this.pinyinLoadFailed) {
+      return Promise.reject(new Error("The local pinyin engine could not be loaded."));
+    }
+    if (window.CharactersPronunciationPinyin?.pinyin) {
+      return Promise.resolve(window.CharactersPronunciationPinyin.pinyin);
+    }
+    if (this.pinyinEnginePromise) return this.pinyinEnginePromise;
+
+    const pluginDir =
+      this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    const source = this.app.vault.adapter.getResourcePath(`${pluginDir}/pinyin-engine.js`);
+
+    this.pinyinEnginePromise = new Promise<PinyinFunction>((resolve, reject) => {
+      const finish = () => {
+        const pinyin = window.CharactersPronunciationPinyin?.pinyin;
+        if (pinyin) resolve(pinyin);
+        else reject(new Error("The pinyin engine did not register its API."));
+      };
+      const existing = document.querySelector<HTMLScriptElement>(
+        `script[data-cpg-engine="${ENGINE_GLOBAL_NAME}"]`
+      );
+      if (existing) {
+        existing.addEventListener("load", finish, { once: true });
+        existing.addEventListener(
+          "error",
+          () => reject(new Error("The pinyin engine failed to load.")),
+          { once: true }
+        );
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.dataset.cpgEngine = ENGINE_GLOBAL_NAME;
+      script.async = true;
+      script.src = source;
+      script.addEventListener("load", finish, { once: true });
+      script.addEventListener(
+        "error",
+        () => reject(new Error("The pinyin engine failed to load.")),
+        { once: true }
+      );
+      document.head.append(script);
+    }).catch((error: unknown) => {
+      this.pinyinLoadFailed = true;
+      this.pinyinEnginePromise = null;
+      new Notice("Characters Pronunciation Guide could not load its local pinyin engine.");
+      throw error;
+    });
+
+    return this.pinyinEnginePromise;
+  }
+
   private toggleSelection(editor: {
     getCursor(which?: "from" | "to"): { line: number; ch: number };
     getLine(line: number): string;
@@ -293,11 +407,9 @@ export default class HanziPinyinPlugin extends Plugin {
       return;
     }
 
-    const completeMarker = selection.match(
-      /^<span class=["']characters-pronunciation-guide["']>([\s\S]*)<\/span>$/i
-    );
-    if (completeMarker) {
-      editor.replaceSelection(completeMarker[1]);
+    const unwrappedSelection = unwrapCompleteMarker(selection);
+    if (unwrappedSelection !== null) {
+      editor.replaceSelection(unwrappedSelection);
       return;
     }
 
@@ -317,78 +429,186 @@ export default class HanziPinyinPlugin extends Plugin {
       }
     }
 
-    editor.replaceSelection(`${SPAN_OPENING}${selection}${SPAN_CLOSING}`);
+    editor.replaceSelection(wrapSelection(selection));
   }
 
-  private async processReadingSection(
+  private processReadingSection(
     element: HTMLElement,
     context: MarkdownPostProcessorContext
-  ): Promise<void> {
+  ): void {
     if (element.closest("[data-cpg-safe-render]")) return;
 
     const section = context.getSectionInfo(element);
-    const safeMarkdown = section ? protectMarkerMarkdown(section.text) : null;
-
-    if (section && safeMarkdown && safeMarkdown !== section.text) {
-      const temporaryElement = document.createElement("div");
-      temporaryElement.dataset.cpgSafeRender = "true";
-      await MarkdownRenderer.render(
-        this.app,
-        safeMarkdown,
-        temporaryElement,
-        context.sourcePath,
-        this
-      );
-
-      const markerElements = Array.from(
-        temporaryElement.querySelectorAll<HTMLElement>(MARKER_SELECTOR)
-      );
-      if (element.tagName === "P") {
-        element.replaceWith(...Array.from(temporaryElement.childNodes));
-      } else {
-        element.replaceChildren(...Array.from(temporaryElement.childNodes));
-      }
-
-      if (this.settings.showPinyinInReadingView) {
-        for (const marker of markerElements) renderHanziPinyin(marker);
-      }
+    const transform = section ? transformMarkerSource(section.text) : null;
+    if (section && transform?.requiresMarkdownRender) {
+      void this.renderSafeReadingSection(element, context, section.text, transform);
       return;
     }
 
-    if (this.settings.showPinyinInReadingView) {
-      for (const marker of element.querySelectorAll<HTMLElement>(MARKER_SELECTOR)) {
-        renderHanziPinyin(marker);
-      }
+    this.renderReadingMarkers(element);
+  }
+
+  private async renderSafeReadingSection(
+    element: HTMLElement,
+    context: MarkdownPostProcessorContext,
+    markdown: string,
+    transform: ReturnType<typeof transformMarkerSource>
+  ): Promise<void> {
+    const temporaryElement = document.createElement("div");
+    temporaryElement.dataset.cpgSafeRender = "true";
+    const renderChild = new MarkdownRenderChild(element);
+    context.addChild(renderChild);
+
+    await MarkdownRenderer.render(
+      this.app,
+      transform.markdown,
+      temporaryElement,
+      context.sourcePath,
+      renderChild
+    );
+
+    const markerElements = restoreMarkerSpans(temporaryElement, transform);
+    if (markerElements.length === 0) return;
+
+    const renderedParagraph = temporaryElement.firstElementChild;
+    if (
+      element.tagName === "P" &&
+      renderedParagraph instanceof HTMLParagraphElement &&
+      temporaryElement.children.length === 1
+    ) {
+      element.replaceChildren(...Array.from(renderedParagraph.childNodes));
+    } else if (element.tagName === "P") {
+      element.replaceWith(...Array.from(temporaryElement.childNodes));
+    } else {
+      element.replaceChildren(...Array.from(temporaryElement.childNodes));
     }
+
+    for (const marker of markerElements) {
+      void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
+    }
+  }
+
+  private renderReadingMarkers(element: HTMLElement): void {
+    if (!this.settings.showPinyinInReadingView) return;
+    for (const marker of element.querySelectorAll<HTMLElement>(MARKER_SELECTOR)) {
+      void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
+    }
+  }
+
+  private renderMarker(element: HTMLElement, shouldRender: () => boolean): Promise<void> {
+    return renderHanziPinyin(element, () => this.getPinyinConverter(), shouldRender);
   }
 
   private refreshRenderedPinyin(): void {
-    for (const zhElement of document.querySelectorAll<HTMLElement>(
+    for (const marker of document.querySelectorAll<HTMLElement>(
       `${markerSelector(".markdown-preview-view")}, ${markerSelector(".markdown-reading-view")}`
     )) {
       if (this.settings.showPinyinInReadingView) {
-        renderHanziPinyin(zhElement);
+        void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
       } else {
-        removeHanziPinyin(zhElement);
+        removeHanziPinyin(marker);
       }
     }
-    this.scheduleLivePreviewRender();
+
+    for (const root of this.livePreviewObservers.keys()) {
+      this.scheduleLivePreviewRender(root);
+    }
   }
 
-  private scheduleLivePreviewRender(): void {
-    if (this.livePreviewRenderTimer !== null) return;
-    this.livePreviewRenderTimer = window.setTimeout(() => {
-      this.livePreviewRenderTimer = null;
-      for (const zhElement of document.querySelectorAll<HTMLElement>(
-        markerSelector(".markdown-source-view.mod-cm6")
-      )) {
-        if (this.settings.showPinyinInLivePreview) {
-          renderHanziPinyin(zhElement);
-        } else {
-          removeHanziPinyin(zhElement);
-        }
-      }
+  private refreshLivePreviewObservers(): void {
+    const roots = new Set<HTMLElement>();
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (!(leaf.view instanceof MarkdownView) || leaf.view.getMode() !== "source") continue;
+      const root = this.findLivePreviewRoot(leaf.view);
+      if (!root) continue;
+
+      roots.add(root);
+      if (this.livePreviewObservers.has(root)) continue;
+
+      const observer = new MutationObserver((records) => {
+        if (this.mutationMayAffectMarker(records)) this.scheduleLivePreviewRender(root);
+      });
+      observer.observe(root, {
+        attributes: true,
+        attributeFilter: ["class"],
+        characterData: true,
+        childList: true,
+        subtree: true
+      });
+      this.livePreviewObservers.set(root, observer);
+      this.scheduleLivePreviewRender(root);
+    }
+
+    for (const [root, observer] of this.livePreviewObservers) {
+      if (roots.has(root)) continue;
+      observer.disconnect();
+      this.livePreviewObservers.delete(root);
+      const timer = this.livePreviewRenderTimers.get(root);
+      if (timer !== undefined) window.clearTimeout(timer);
+      this.livePreviewRenderTimers.delete(root);
+    }
+  }
+
+  private findLivePreviewRoot(view: MarkdownView): HTMLElement | null {
+    if (view.containerEl.matches(".markdown-source-view.mod-cm6")) return view.containerEl;
+    return view.containerEl.querySelector<HTMLElement>(".markdown-source-view.mod-cm6");
+  }
+
+  private mutationMayAffectMarker(records: MutationRecord[]): boolean {
+    return records.some((record) => {
+      if (this.nodeMayContainMarker(record.target)) return true;
+      return Array.from(record.addedNodes).some((node) => this.nodeMayContainMarker(node));
+    });
+  }
+
+  private nodeMayContainMarker(node: Node): boolean {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.parentElement ? this.nodeMayContainMarker(node.parentElement) : false;
+    }
+    if (!(node instanceof Element)) return false;
+
+    const line = node.closest(".cm-line");
+    if (line) {
+      return (
+        line.matches(MARKER_SELECTOR) ||
+        line.querySelector(MARKER_SELECTOR) !== null ||
+        line.textContent?.includes(MARKER_CLASS) === true
+      );
+    }
+
+    return (
+      node.matches(MARKER_SELECTOR) ||
+      node.closest(MARKER_SELECTOR) !== null
+    );
+  }
+
+  private scheduleLivePreviewRender(root: HTMLElement): void {
+    if (!this.livePreviewObservers.has(root) || this.livePreviewRenderTimers.has(root)) return;
+
+    const timer = window.setTimeout(() => {
+      this.livePreviewRenderTimers.delete(root);
+      if (!this.livePreviewObservers.has(root)) return;
+      this.renderLivePreviewRoot(root);
     }, 0);
+    this.livePreviewRenderTimers.set(root, timer);
+  }
+
+  private renderLivePreviewRoot(root: HTMLElement): void {
+    for (const marker of root.querySelectorAll<HTMLElement>(MARKER_SELECTOR)) {
+      const isActiveLine = marker.closest(".cm-activeLine") !== null;
+      if (!this.settings.showPinyinInLivePreview || isActiveLine) {
+        removeHanziPinyin(marker);
+      } else {
+        void this.renderMarker(marker, () => this.settings.showPinyinInLivePreview);
+      }
+    }
+  }
+
+  private disconnectLivePreviewObservers(): void {
+    for (const observer of this.livePreviewObservers.values()) observer.disconnect();
+    for (const timer of this.livePreviewRenderTimers.values()) window.clearTimeout(timer);
+    this.livePreviewObservers.clear();
+    this.livePreviewRenderTimers.clear();
   }
 }
 

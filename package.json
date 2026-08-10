@@ -4,14 +4,15 @@
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs",
-    "check": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node tests/build-tests.mjs && node --test .test-build/core.test.cjs",
+    "test:bundle": "node --test tests/bundle.test.mjs",
+    "check": "npm run typecheck && npm run test:unit && npm run build && npm run test:bundle"
   },
   "dependencies": {
     "pinyin-pro": "^3.27.0"
   },
   "devDependencies": {
-    "@codemirror/state": "6.5.0",
-    "@codemirror/view": "^6.36.2",
     "@types/node": "^22.10.2",
     "esbuild": "^0.24.2",
     "obsidian": "^1.7.2",

@@ -1,12 +1,26 @@
 import esbuild from "esbuild";
 
-await esbuild.build({
-  entryPoints: ["src/main.ts"],
+const sharedOptions = {
   bundle: true,
-  outfile: "main.js",
-  format: "cjs",
+  minify: true,
   platform: "browser",
   target: "es2020",
-  external: ["obsidian", "@codemirror/state", "@codemirror/view"],
   logLevel: "info"
-});
+};
+
+await Promise.all([
+  esbuild.build({
+    ...sharedOptions,
+    entryPoints: ["src/main.ts"],
+    outfile: "main.js",
+    format: "cjs",
+    external: ["obsidian"]
+  }),
+  esbuild.build({
+    ...sharedOptions,
+    entryPoints: ["src/pinyin-engine.ts"],
+    outfile: "pinyin-engine.js",
+    format: "iife",
+    globalName: "CharactersPronunciationPinyin"
+  })
+]);

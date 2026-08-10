@@ -18,4 +18,4 @@ npm run check
 npm run build
 ```
 
-`main.js`, `manifest.json`, and `styles.css` are the files Obsidian loads. After a build, copy those three files into your vault's `.obsidian/plugins/characters-pronunciation-guide/` folder, then reload Obsidian.
+`main.js`, `pinyin-engine.js`, `manifest.json`, and `styles.css` are the files Obsidian loads. After a build, copy those four files into your vault's `.obsidian/plugins/characters-pronunciation-guide/` folder, then reload Obsidian. The pinyin engine is loaded locally on first use, keeping startup lightweight while remaining fully offline.
