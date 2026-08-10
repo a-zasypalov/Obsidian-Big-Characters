@@ -19,20 +19,14 @@ import {
   transformMarkerSource
 } from "./marker";
 import { unwrapCompleteMarker, wrapSelection } from "./selection";
+import { createPinyinEngine } from "virtual:pinyin-engine";
 
 const HANZI_PATTERN = /\p{Script=Han}+/gu;
 const PINYIN_CACHE_CAPACITY = 256;
 const SETTINGS_SAVE_DELAY = 250;
-const ENGINE_GLOBAL_NAME = "CharactersPronunciationPinyin";
 
 type PinyinFunction = (text: string, options: { toneType: "symbol" }) => string;
 type PinyinConverter = (text: string) => string;
-
-declare global {
-  interface Window {
-    CharactersPronunciationPinyin?: { pinyin: PinyinFunction };
-  }
-}
 
 interface HanziPinyinSettings {
   showPinyinInLivePreview: boolean;
@@ -341,51 +335,16 @@ export default class HanziPinyinPlugin extends Plugin {
     if (this.pinyinLoadFailed) {
       return Promise.reject(new Error("The local pinyin engine could not be loaded."));
     }
-    if (window.CharactersPronunciationPinyin?.pinyin) {
-      return Promise.resolve(window.CharactersPronunciationPinyin.pinyin);
-    }
     if (this.pinyinEnginePromise) return this.pinyinEnginePromise;
 
-    const pluginDir =
-      this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-    const source = this.app.vault.adapter.getResourcePath(`${pluginDir}/pinyin-engine.js`);
-
-    this.pinyinEnginePromise = new Promise<PinyinFunction>((resolve, reject) => {
-      const finish = () => {
-        const pinyin = window.CharactersPronunciationPinyin?.pinyin;
-        if (pinyin) resolve(pinyin);
-        else reject(new Error("The pinyin engine did not register its API."));
-      };
-      const existing = document.querySelector<HTMLScriptElement>(
-        `script[data-cpg-engine="${ENGINE_GLOBAL_NAME}"]`
-      );
-      if (existing) {
-        existing.addEventListener("load", finish, { once: true });
-        existing.addEventListener(
-          "error",
-          () => reject(new Error("The pinyin engine failed to load.")),
-          { once: true }
-        );
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.dataset.cpgEngine = ENGINE_GLOBAL_NAME;
-      script.async = true;
-      script.src = source;
-      script.addEventListener("load", finish, { once: true });
-      script.addEventListener(
-        "error",
-        () => reject(new Error("The pinyin engine failed to load.")),
-        { once: true }
-      );
-      document.head.append(script);
-    }).catch((error: unknown) => {
+    this.pinyinEnginePromise = Promise.resolve()
+      .then(() => createPinyinEngine())
+      .catch((error: unknown) => {
       this.pinyinLoadFailed = true;
       this.pinyinEnginePromise = null;
-      new Notice("Characters Pronunciation Guide could not load its local pinyin engine.");
+      new Notice("Characters Pronunciation Guide could not start its local pinyin engine.");
       throw error;
-    });
+      });
 
     return this.pinyinEnginePromise;
   }

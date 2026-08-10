@@ -1,5 +1,5 @@
-/* Standard <span class="characters-pronunciation-guide">...</span> styling. */
-.characters-pronunciation-guide {
+/* Standard <span class="cpg-zh">...</span> styling. */
+.cpg-zh {
   display: inline-block;
   font-family: var(
     --hanzi-pinyin-character-font,

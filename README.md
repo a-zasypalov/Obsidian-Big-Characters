@@ -2,7 +2,7 @@
 
 An Obsidian plugin that renders marked characters as ruby text with automatic pronunciation annotations.
 
-For example, `<span class="characters-pronunciation-guide">要</span>` renders as 要 with `yào` above it in both Reading View and Live Preview. The Markdown remains unchanged, and the marker supports bold and italic text: `<span class="characters-pronunciation-guide">**要** *学习*</span>`.
+For example, `<span class="cpg-zh">要</span>` renders as 要 with `yào` above it in both Reading View and Live Preview. The Markdown remains unchanged, and the marker supports bold and italic text: `<span class="cpg-zh">**要** *学习*</span>`.
 
 Use the `Hanzi Pinyin: Toggle selection as Hanzi pinyin` command to add or remove the marker around selected text. Its command ID is unchanged, so an existing hotkey continues to work. You can assign or change the shortcut in Obsidian Settings → Hotkeys.
 
@@ -18,4 +18,4 @@ npm run check
 npm run build
 ```
 
-`main.js`, `pinyin-engine.js`, `manifest.json`, and `styles.css` are the files Obsidian loads. After a build, copy those four files into your vault's `.obsidian/plugins/characters-pronunciation-guide/` folder, then reload Obsidian. The pinyin engine is loaded locally on first use, keeping startup lightweight while remaining fully offline.
+`main.js`, `manifest.json`, and `styles.css` are the files Obsidian loads. After a build, copy those three files into your vault's `.obsidian/plugins/characters-pronunciation-guide/` folder, then reload Obsidian. The pinyin engine is bundled into `main.js` but is initialized only on first use, keeping it fully offline and compatible with the Community Plugins installer.

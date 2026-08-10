@@ -3,7 +3,7 @@
   "name": "Characters Pronunciation Guide",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Adds configurable ruby annotations to text marked with <span class=\"characters-pronunciation-guide\">...</span>.",
+  "description": "Adds configurable ruby annotations to Chinese text marked with <span class=\"cpg-zh\">...</span>.",
   "author": "Artem Zasypalov",
   "isDesktopOnly": false
 }

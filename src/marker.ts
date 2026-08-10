@@ -1,4 +1,5 @@
-export const MARKER_CLASS = "characters-pronunciation-guide";
+// `zh` is the ISO 639-1 / BCP 47 language tag for Chinese.
+export const MARKER_CLASS = "cpg-zh";
 export const MARKER_SELECTOR = `span.${MARKER_CLASS}`;
 export const SPAN_OPENING = `<span class="${MARKER_CLASS}">`;
 export const SPAN_CLOSING = "</span>";
