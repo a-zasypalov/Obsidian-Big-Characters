@@ -1,5 +1,5 @@
-/* Standard <span class="hanzi-pinyin">...</span> styling. */
-.hanzi-pinyin {
+/* Standard <span class="characters-pronunciation-guide">...</span> styling. */
+.characters-pronunciation-guide {
   display: inline;
   font-family: var(
     --hanzi-pinyin-character-font,

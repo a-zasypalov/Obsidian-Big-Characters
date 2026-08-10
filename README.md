@@ -1,8 +1,8 @@
 # Obsidian Hanzi Pinyin
 
-An Obsidian plugin that renders Hanzi inside `<span class="hanzi-pinyin">...</span>` as ruby text with automatic pinyin.
+An Obsidian plugin that renders marked characters as ruby text with automatic pronunciation annotations.
 
-For example, `<span class="hanzi-pinyin">要</span>` renders as 要 with `yào` above it in both Reading View and Live Preview. The Markdown remains unchanged, and the marker supports bold and italic text: `<span class="hanzi-pinyin">**要** *学习*</span>`.
+For example, `<span class="characters-pronunciation-guide">要</span>` renders as 要 with `yào` above it in both Reading View and Live Preview. The Markdown remains unchanged, and the marker supports bold and italic text: `<span class="characters-pronunciation-guide">**要** *学习*</span>`.
 
 Use the `Hanzi Pinyin: Toggle selection as Hanzi pinyin` command to add or remove the marker around selected text. Its command ID is unchanged, so an existing hotkey continues to work. You can assign or change the shortcut in Obsidian Settings → Hotkeys.
 
@@ -18,4 +18,4 @@ npm run check
 npm run build
 ```
 
-`main.js`, `manifest.json`, and `styles.css` are the files Obsidian loads. After a build, copy those three files into your vault's `.obsidian/plugins/ruby-highlights/` folder, then reload Obsidian.
+`main.js`, `manifest.json`, and `styles.css` are the files Obsidian loads. After a build, copy those three files into your vault's `.obsidian/plugins/characters-pronunciation-guide/` folder, then reload Obsidian.

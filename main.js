@@ -24339,8 +24339,13 @@ var DEFAULT_OPTIONS = {
 
 // src/main.ts
 var HANZI_PATTERN = /\p{Script=Han}+/gu;
-var SPAN_OPENING = '<span class="hanzi-pinyin">';
+var MARKER_CLASS = "characters-pronunciation-guide";
+var MARKER_SELECTOR = `span.${MARKER_CLASS}`;
+var SPAN_OPENING = `<span class="${MARKER_CLASS}">`;
 var SPAN_CLOSING = "</span>";
+function markerSelector(scope) {
+  return `${scope} ${MARKER_SELECTOR}`;
+}
 var DEFAULT_SETTINGS = {
   showPinyinInLivePreview: true,
   showPinyinInReadingView: true,
@@ -24493,7 +24498,7 @@ var HanziPinyinPlugin = class extends import_obsidian.Plugin {
       editorCallback: (editor) => this.toggleSelection(editor)
     });
     this.registerMarkdownPostProcessor((element) => {
-      for (const zhElement of element.querySelectorAll("span.hanzi-pinyin")) {
+      for (const zhElement of element.querySelectorAll(MARKER_SELECTOR)) {
         if (this.settings.showPinyinInReadingView) {
           renderHanziPinyin(zhElement);
         }
@@ -24546,7 +24551,7 @@ var HanziPinyinPlugin = class extends import_obsidian.Plugin {
       return;
     }
     const completeMarker = selection.match(
-      /^<span class=["']hanzi-pinyin["']>([\s\S]*)<\/span>$/i
+      /^<span class=["']characters-pronunciation-guide["']>([\s\S]*)<\/span>$/i
     );
     if (completeMarker) {
       editor.replaceSelection(completeMarker[1]);
@@ -24571,7 +24576,7 @@ var HanziPinyinPlugin = class extends import_obsidian.Plugin {
   }
   refreshRenderedPinyin() {
     for (const zhElement of document.querySelectorAll(
-      ".markdown-preview-view span.hanzi-pinyin, .markdown-reading-view span.hanzi-pinyin"
+      `${markerSelector(".markdown-preview-view")}, ${markerSelector(".markdown-reading-view")}`
     )) {
       if (this.settings.showPinyinInReadingView) {
         renderHanziPinyin(zhElement);
@@ -24586,7 +24591,7 @@ var HanziPinyinPlugin = class extends import_obsidian.Plugin {
     this.livePreviewRenderTimer = window.setTimeout(() => {
       this.livePreviewRenderTimer = null;
       for (const zhElement of document.querySelectorAll(
-        ".markdown-source-view.mod-cm6 span.hanzi-pinyin"
+        markerSelector(".markdown-source-view.mod-cm6")
       )) {
         if (this.settings.showPinyinInLivePreview) {
           renderHanziPinyin(zhElement);
