@@ -1,9 +1,9 @@
 {
-  "id": "ruby-highlights",
-  "name": "Hanzi Pinyin",
+  "id": "characters-pronunciation-guide",
+  "name": "Characters Pronunciation Guide",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Shows pinyin above Hanzi inside <span class=\"hanzi-pinyin\">...</span> markers.",
-  "author": "Local",
+  "description": "Adds configurable ruby annotations to CJK text marked with HTML spans.",
+  "author": "Artem Zasypalov",
   "isDesktopOnly": false
 }
