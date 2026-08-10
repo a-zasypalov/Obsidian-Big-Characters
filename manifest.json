@@ -1,9 +1,9 @@
 {
-  "id": "characters-pronunciation-guide",
-  "name": "Characters Pronunciation Guide",
+  "id": "characters-guide",
+  "name": "Characters Guide",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Adds configurable ruby annotations to Chinese text marked with <span class=\"cpg-zh\">...</span>.",
+  "description": "Styles Chinese text with optional configurable ruby pinyin annotations.",
   "author": "Artem Zasypalov",
   "isDesktopOnly": false
 }

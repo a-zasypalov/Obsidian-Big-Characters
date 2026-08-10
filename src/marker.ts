@@ -1,13 +1,16 @@
 // `zh` is the ISO 639-1 / BCP 47 language tag for Chinese.
-export const MARKER_CLASS = "cpg-zh";
-export const MARKER_SELECTOR = `span.${MARKER_CLASS}`;
-export const SPAN_OPENING = `<span class="${MARKER_CLASS}">`;
+export const CHINESE_MARKER_CLASS = "cg-zh";
+export const PINYIN_MARKER_CLASS = "cg-zh-pinyin";
+export const GUIDE_MARKER_SELECTOR = `span.${CHINESE_MARKER_CLASS}, span.${PINYIN_MARKER_CLASS}`;
+export const PINYIN_MARKER_SELECTOR = `span.${PINYIN_MARKER_CLASS}`;
+export const PINYIN_SPAN_OPENING = `<span class="${PINYIN_MARKER_CLASS}">`;
 export const SPAN_CLOSING = "</span>";
 
 const SPAN_TAG_PATTERN = /<\/?span\b[^>]*>/giu;
 const CLASS_ATTRIBUTE_PATTERN =
   /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/iu;
 const INLINE_MARKDOWN_PATTERN = /[*_`\[]|~{2}/u;
+const ADJACENT_BOLD_ITALIC_PATTERN = /^\*\*([^*]+)\*\*\*([^*]+)\*/u;
 
 export interface MarkerSentinel {
   id: number;
@@ -28,11 +31,67 @@ interface SpanStackEntry {
   contentStart: number;
 }
 
-export function openingTagHasMarkerClass(tag: string): boolean {
+function openingTagHasClass(tag: string, className: string): boolean {
   if (/^<\//u.test(tag)) return false;
 
   const classValue = tag.match(CLASS_ATTRIBUTE_PATTERN)?.slice(1).find(Boolean);
-  return classValue?.split(/\s+/u).includes(MARKER_CLASS) ?? false;
+  return classValue?.split(/\s+/u).includes(className) ?? false;
+}
+
+export function openingTagHasGuideClass(tag: string): boolean {
+  return (
+    openingTagHasClass(tag, CHINESE_MARKER_CLASS) ||
+    openingTagHasClass(tag, PINYIN_MARKER_CLASS)
+  );
+}
+
+export function openingTagHasPinyinMarkerClass(tag: string): boolean {
+  return openingTagHasClass(tag, PINYIN_MARKER_CLASS);
+}
+
+function protectAdjacentBoldItalic(content: string): string {
+  let result = "";
+  let cursor = 0;
+  let codeTicks = 0;
+
+  while (cursor < content.length) {
+    if (content[cursor] === "\\") {
+      result += content.slice(cursor, cursor + 2);
+      cursor += 2;
+      continue;
+    }
+
+    if (content[cursor] === "`") {
+      const ticks = content.slice(cursor).match(/^`+/u)?.[0] ?? "`";
+      if (codeTicks === 0) codeTicks = ticks.length;
+      else if (ticks.length === codeTicks) codeTicks = 0;
+      result += ticks;
+      cursor += ticks.length;
+      continue;
+    }
+
+    if (codeTicks === 0) {
+      const match = content.slice(cursor).match(ADJACENT_BOLD_ITALIC_PATTERN);
+      if (match) {
+        result += `<strong>${match[1]}</strong><em>${match[2]}</em>`;
+        cursor += match[0].length;
+        continue;
+      }
+    }
+
+    result += content[cursor];
+    cursor += 1;
+  }
+
+  return result;
+}
+
+export function protectGuideEmphasis(markdown: string): string {
+  const spanPattern = /(<span\b[^>]*>)([\s\S]*?)(<\/span\s*>)/giu;
+  return markdown.replace(spanPattern, (whole, openingTag: string, content: string, closingTag: string) => {
+    if (!openingTagHasGuideClass(openingTag)) return whole;
+    return `${openingTag}${protectAdjacentBoldItalic(content)}${closingTag}`;
+  });
 }
 
 export function transformMarkerSource(markdown: string): MarkerSourceTransform {
@@ -66,7 +125,7 @@ export function transformMarkerSource(markdown: string): MarkerSourceTransform {
     }
 
     const openingPartIndex = parts.length;
-    if (!openingTagHasMarkerClass(tag)) {
+    if (!openingTagHasGuideClass(tag)) {
       parts.push(tag);
       stack.push({ openingPartIndex, contentStart: cursor });
       continue;
@@ -76,8 +135,8 @@ export function transformMarkerSource(markdown: string): MarkerSourceTransform {
     const marker: MarkerSentinel = {
       id,
       openingTag: tag,
-      openingComment: `cpg-marker-open-${id}`,
-      closingComment: `cpg-marker-close-${id}`
+      openingComment: `cg-marker-open-${id}`,
+      closingComment: `cg-marker-close-${id}`
     };
     markers.push(marker);
     parts.push(`<!--${marker.openingComment}-->`);

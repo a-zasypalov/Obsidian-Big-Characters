@@ -1,24 +1,25 @@
-/* Standard <span class="cpg-zh">...</span> styling. */
-.cpg-zh {
+/* Chinese guide markers, with or without pinyin. */
+.cg-zh,
+.cg-zh-pinyin {
   display: inline-block;
   font-family: var(
-    --hanzi-pinyin-character-font,
+    --cg-character-font,
     "Kaiti SC", "STKaiti", "KaiTi", serif
   );
-  font-size: var(--hanzi-pinyin-character-size, 2.5em);
+  font-size: var(--cg-character-size, 2.5em);
   font-weight: 500;
   line-height: 1;
   margin-bottom: 0.12em;
   vertical-align: baseline;
 }
 
-.hanzi-pinyin-ruby {
+.cg-ruby {
   /* Native ruby layout keeps the Hanzi on the text baseline. */
   ruby-position: over;
   vertical-align: baseline;
 }
 
-.hanzi-pinyin-ruby > .hanzi-pinyin-base {
+.cg-ruby > .cg-base {
   background: transparent !important;
   color: inherit;
   font-family: inherit !important;
@@ -27,12 +28,12 @@
   line-height: inherit !important;
 }
 
-.hanzi-pinyin-ruby > rt {
+.cg-ruby > rt {
   font-family: var(
-    --hanzi-pinyin-annotation-font,
+    --cg-annotation-font,
     -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif
   );
-  font-size: var(--hanzi-pinyin-annotation-size, 0.35em);
+  font-size: var(--cg-annotation-size, 0.35em);
   font-weight: 200;
   line-height: 1;
   user-select: none;
