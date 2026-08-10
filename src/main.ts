@@ -1,130 +1,118 @@
-import { Plugin } from "obsidian";
+import { Notice, Plugin } from "obsidian";
 import { pinyin } from "pinyin-pro";
-import { RangeSetBuilder } from "@codemirror/state";
-import {
-  Decoration,
-  type DecorationSet,
-  EditorView,
-  ViewPlugin,
-  type ViewUpdate,
-  WidgetType
-} from "@codemirror/view";
 
-const HIGHLIGHT_PATTERN = /==([^=\n]+?)==/g;
+const HANZI_PATTERN = /\p{Script=Han}+/gu;
 
 function toPinyin(text: string): string {
   return pinyin(text.trim(), { toneType: "symbol" });
 }
 
-class RubyWidget extends WidgetType {
-  constructor(
-    private readonly text: string,
-    private readonly pronunciation: string
-  ) {
-    super();
-  }
+function appendRubyText(parent: HTMLElement, text: string): void {
+  const fragment = document.createDocumentFragment();
+  let lastIndex = 0;
+  HANZI_PATTERN.lastIndex = 0;
 
-  eq(other: RubyWidget): boolean {
-    return this.text === other.text && this.pronunciation === other.pronunciation;
-  }
+  for (let match = HANZI_PATTERN.exec(text); match; match = HANZI_PATTERN.exec(text)) {
+    if (match.index > lastIndex) {
+      fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
+    }
 
-  toDOM(): HTMLElement {
+    const hanzi = match[0];
     const ruby = document.createElement("ruby");
-    ruby.className = "ruby-highlights-ruby";
+    ruby.className = "hanzi-pinyin-ruby";
 
     const base = document.createElement("span");
-    base.className = "ruby-highlights-base";
-    base.textContent = this.text;
+    base.className = "hanzi-pinyin-base";
+    base.textContent = hanzi;
 
     const annotation = document.createElement("rt");
-    annotation.textContent = this.pronunciation;
+    annotation.textContent = toPinyin(hanzi);
 
     ruby.append(base, annotation);
-    return ruby;
+    fragment.append(ruby);
+    lastIndex = match.index + hanzi.length;
   }
 
-  ignoreEvent(): boolean {
-    return false;
-  }
-}
-
-function selectionTouches(view: EditorView, from: number, to: number): boolean {
-  return view.state.selection.ranges.some((range) => range.from <= to && range.to >= from);
-}
-
-function buildDecorations(view: EditorView): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>();
-
-  for (const visibleRange of view.visibleRanges) {
-    const source = view.state.doc.sliceString(visibleRange.from, visibleRange.to);
-    HIGHLIGHT_PATTERN.lastIndex = 0;
-
-    for (let match = HIGHLIGHT_PATTERN.exec(source); match; match = HIGHLIGHT_PATTERN.exec(source)) {
-      const fullText = match[0];
-      const highlightedText = match[1].trim();
-      const from = visibleRange.from + match.index;
-      const to = from + fullText.length;
-
-      // Keep the original Markdown visible while the user is editing this highlight.
-      if (!highlightedText || selectionTouches(view, from, to)) continue;
-
-      builder.add(
-        from,
-        to,
-        Decoration.replace({
-          widget: new RubyWidget(highlightedText, toPinyin(highlightedText))
-        })
-      );
-    }
+  if (lastIndex < text.length) {
+    fragment.append(document.createTextNode(text.slice(lastIndex)));
   }
 
-  return builder.finish();
+  parent.append(fragment);
 }
 
-const rubyHighlightExtension = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
+function renderHanziPinyin(element: HTMLElement): void {
+  if (element.dataset.hanziPinyinProcessed === "true") return;
+  element.dataset.hanziPinyinProcessed = "true";
 
-    constructor(view: EditorView) {
-      this.decorations = buildDecorations(view);
-    }
-
-    update(update: ViewUpdate): void {
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
       if (
-        update.docChanged ||
-        update.selectionSet ||
-        update.viewportChanged ||
-        update.focusChanged
+        !node.textContent ||
+        !/\p{Script=Han}/u.test(node.textContent) ||
+        parent?.closest("rt, code, pre, script, style")
       ) {
-        this.decorations = buildDecorations(update.view);
+        return NodeFilter.FILTER_REJECT;
       }
+      return NodeFilter.FILTER_ACCEPT;
     }
-  },
-  {
-    decorations: (value) => value.decorations
+  });
+
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    textNodes.push(node as Text);
   }
-);
 
-export default class RubyHighlightsPlugin extends Plugin {
+  for (const textNode of textNodes) {
+    const wrapper = document.createElement("span");
+    appendRubyText(wrapper, textNode.textContent ?? "");
+    textNode.replaceWith(...Array.from(wrapper.childNodes));
+  }
+}
+
+export default class HanziPinyinPlugin extends Plugin {
+  private livePreviewObserver: MutationObserver | null = null;
+  private livePreviewRenderTimer: number | null = null;
+
   async onload(): Promise<void> {
-    this.registerMarkdownPostProcessor((element) => {
-      for (const mark of element.querySelectorAll<HTMLElement>("mark")) {
-        if (mark.parentElement?.matches("ruby.ruby-highlights-ruby")) continue;
-
-        const text = mark.textContent?.trim() ?? "";
-        if (!text) continue;
-
-        const ruby = document.createElement("ruby");
-        ruby.className = "ruby-highlights-ruby";
-        mark.replaceWith(ruby);
-        ruby.append(mark);
-
-        const annotation = document.createElement("rt");
-        annotation.textContent = toPinyin(text);
-        ruby.append(annotation);
+    this.addCommand({
+      id: "wrap-selection-as-hanzi-pinyin",
+      name: "Wrap selection as Hanzi pinyin",
+      editorCallback: (editor) => {
+        const selection = editor.getSelection();
+        if (!selection) {
+          new Notice("Select Chinese text first.");
+          return;
+        }
+        editor.replaceSelection(`<span class="hanzi-pinyin">${selection}</span>`);
       }
     });
 
-    this.registerEditorExtension(rubyHighlightExtension);
+    this.registerMarkdownPostProcessor((element) => {
+      for (const zhElement of element.querySelectorAll<HTMLElement>("span.hanzi-pinyin")) {
+        renderHanziPinyin(zhElement);
+      }
+    });
+
+    this.app.workspace.onLayoutReady(() => {
+      this.livePreviewObserver = new MutationObserver(() => {
+        this.scheduleLivePreviewRender();
+      });
+      this.livePreviewObserver.observe(document.body, { childList: true, subtree: true });
+      this.register(() => this.livePreviewObserver?.disconnect());
+      this.scheduleLivePreviewRender();
+    });
+  }
+
+  private scheduleLivePreviewRender(): void {
+    if (this.livePreviewRenderTimer !== null) return;
+    this.livePreviewRenderTimer = window.setTimeout(() => {
+      this.livePreviewRenderTimer = null;
+      for (const zhElement of document.querySelectorAll<HTMLElement>(
+        ".markdown-source-view.mod-cm6 span.hanzi-pinyin"
+      )) {
+        renderHanziPinyin(zhElement);
+      }
+    }, 0);
   }
 }

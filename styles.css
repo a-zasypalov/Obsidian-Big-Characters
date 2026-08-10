@@ -1,25 +1,28 @@
-/* Reading View and Live Preview ruby annotations created from ==highlights==. */
-.ruby-highlights-ruby {
-    /* Native ruby layout keeps the Hanzi on the text baseline. */
-    ruby-position: over;
-    vertical-align: baseline;
-    font-family: "Kaiti SC", "STKaiti", "KaiTi", serif;
-    font-size: 2.5em;
-    font-weight: 500;
-    line-height: 1;
+/* Standard <span class="hanzi-pinyin">...</span> styling. */
+.hanzi-pinyin {
+  display: inline;
+  font-family: "Kaiti SC", "STKaiti", "KaiTi", serif;
+  font-size: 2.5em;
+  font-weight: 500;
+  line-height: 1;
 }
 
-.ruby-highlights-ruby > mark,
-.ruby-highlights-ruby > .ruby-highlights-base {
-    background: transparent !important;
-    color: inherit;
-    font-family: inherit !important;
+.hanzi-pinyin-ruby {
+  /* Native ruby layout keeps the Hanzi on the text baseline. */
+  ruby-position: over;
+  vertical-align: baseline;
+}
+
+.hanzi-pinyin-ruby > .hanzi-pinyin-base {
+  background: transparent !important;
+  color: inherit;
+  font-family: inherit !important;
     font-size: inherit !important;
     font-weight: inherit !important;
     line-height: inherit !important;
 }
 
-.ruby-highlights-ruby > rt {
+.hanzi-pinyin-ruby > rt {
     font-family:
         -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     font-size: 0.35em;

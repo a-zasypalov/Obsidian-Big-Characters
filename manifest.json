@@ -1,9 +1,9 @@
 {
   "id": "ruby-highlights",
-  "name": "Ruby Highlights",
+  "name": "Hanzi Pinyin",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Shows pinyin above Chinese text highlighted with ==double equals==.",
+  "description": "Shows pinyin above Hanzi inside <span class=\"hanzi-pinyin\">...</span> markers.",
   "author": "Local",
   "isDesktopOnly": false
 }
