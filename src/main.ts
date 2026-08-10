@@ -60,9 +60,90 @@ function appendRubyText(parent: HTMLElement, text: string): void {
   parent.append(fragment);
 }
 
+function findClosingMarker(text: string, marker: string, from: number): number {
+  let closing = text.indexOf(marker, from);
+  while (closing !== -1 && !/\S/.test(text[closing - 1] ?? "")) {
+    closing = text.indexOf(marker, closing + marker.length);
+  }
+  return closing;
+}
+
+function appendInlineMarkdown(parent: HTMLElement, text: string): void {
+  const markerPattern = /\*{1,3}(?=\S)/g;
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    markerPattern.lastIndex = cursor;
+    const opening = markerPattern.exec(text);
+    if (!opening) {
+      parent.append(document.createTextNode(text.slice(cursor)));
+      return;
+    }
+
+    const marker = opening[0];
+    const contentStart = opening.index + marker.length;
+    const closing = findClosingMarker(text, marker, contentStart);
+    if (closing === -1) {
+      parent.append(document.createTextNode(text.slice(cursor)));
+      return;
+    }
+
+    if (opening.index > cursor) {
+      parent.append(document.createTextNode(text.slice(cursor, opening.index)));
+    }
+
+    const content = text.slice(contentStart, closing);
+    if (marker === "*") {
+      const italic = document.createElement("em");
+      appendInlineMarkdown(italic, content);
+      parent.append(italic);
+    } else if (marker === "**") {
+      const bold = document.createElement("strong");
+      appendInlineMarkdown(bold, content);
+      parent.append(bold);
+    } else {
+      const bold = document.createElement("strong");
+      const italic = document.createElement("em");
+      appendInlineMarkdown(italic, content);
+      bold.append(italic);
+      parent.append(bold);
+    }
+
+    cursor = closing + marker.length;
+  }
+}
+
+function renderInlineMarkdown(element: HTMLElement): void {
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (
+        !/[\*]{1,3}/.test(node.textContent ?? "") ||
+        parent?.closest("code, pre, script, style")
+      ) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    textNodes.push(node as Text);
+  }
+
+  for (const textNode of textNodes) {
+    const wrapper = document.createElement("span");
+    appendInlineMarkdown(wrapper, textNode.textContent ?? "");
+    textNode.replaceWith(...Array.from(wrapper.childNodes));
+  }
+}
+
 function renderHanziPinyin(element: HTMLElement): void {
   if (element.dataset.hanziPinyinProcessed === "true") return;
   element.dataset.hanziPinyinProcessed = "true";
+
+  renderInlineMarkdown(element);
 
   const textNodes: Text[] = [];
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {

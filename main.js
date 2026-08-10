@@ -24345,9 +24345,9 @@ var DEFAULT_SETTINGS = {
   showPinyinInLivePreview: true,
   showPinyinInReadingView: true,
   characterSize: 2.5,
-  characterFont: '"Kaiti SC", serif',
+  characterFont: '"Kaiti SC", "STKaiti", "KaiTi", serif',
   pinyinSize: 0.35,
-  pinyinFont: 'sans-serif'
+  pinyinFont: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
 };
 function toPinyin(text) {
   return pinyin(text.trim(), { toneType: "symbol" });
@@ -24377,9 +24377,76 @@ function appendRubyText(parent, text) {
   }
   parent.append(fragment);
 }
+function findClosingMarker(text, marker, from) {
+  let closing = text.indexOf(marker, from);
+  while (closing !== -1 && !/\S/.test(text[closing - 1] ?? "")) {
+    closing = text.indexOf(marker, closing + marker.length);
+  }
+  return closing;
+}
+function appendInlineMarkdown(parent, text) {
+  const markerPattern = /\*{1,3}(?=\S)/g;
+  let cursor = 0;
+  while (cursor < text.length) {
+    markerPattern.lastIndex = cursor;
+    const opening = markerPattern.exec(text);
+    if (!opening) {
+      parent.append(document.createTextNode(text.slice(cursor)));
+      return;
+    }
+    const marker = opening[0];
+    const contentStart = opening.index + marker.length;
+    const closing = findClosingMarker(text, marker, contentStart);
+    if (closing === -1) {
+      parent.append(document.createTextNode(text.slice(cursor)));
+      return;
+    }
+    if (opening.index > cursor) {
+      parent.append(document.createTextNode(text.slice(cursor, opening.index)));
+    }
+    const content = text.slice(contentStart, closing);
+    if (marker === "*") {
+      const italic = document.createElement("em");
+      appendInlineMarkdown(italic, content);
+      parent.append(italic);
+    } else if (marker === "**") {
+      const bold = document.createElement("strong");
+      appendInlineMarkdown(bold, content);
+      parent.append(bold);
+    } else {
+      const bold = document.createElement("strong");
+      const italic = document.createElement("em");
+      appendInlineMarkdown(italic, content);
+      bold.append(italic);
+      parent.append(bold);
+    }
+    cursor = closing + marker.length;
+  }
+}
+function renderInlineMarkdown(element) {
+  const textNodes = [];
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!/[\*]{1,3}/.test(node.textContent ?? "") || parent?.closest("code, pre, script, style")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    textNodes.push(node);
+  }
+  for (const textNode of textNodes) {
+    const wrapper = document.createElement("span");
+    appendInlineMarkdown(wrapper, textNode.textContent ?? "");
+    textNode.replaceWith(...Array.from(wrapper.childNodes));
+  }
+}
 function renderHanziPinyin(element) {
   if (element.dataset.hanziPinyinProcessed === "true") return;
   element.dataset.hanziPinyinProcessed = "true";
+  renderInlineMarkdown(element);
   const textNodes = [];
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {

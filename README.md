@@ -2,7 +2,7 @@
 
 An Obsidian plugin that renders Hanzi inside `<span class="hanzi-pinyin">...</span>` as ruby text with automatic pinyin.
 
-For example, `<span class="hanzi-pinyin">要</span>` renders as 要 with `yào` above it in both Reading View and Live Preview. The Markdown remains unchanged, and the marker can contain normal inline Markdown such as `<span class="hanzi-pinyin">**要** *学习*</span>`.
+For example, `<span class="hanzi-pinyin">要</span>` renders as 要 with `yào` above it in both Reading View and Live Preview. The Markdown remains unchanged, and the marker supports bold and italic text: `<span class="hanzi-pinyin">**要** *学习*</span>`.
 
 Use the `Hanzi Pinyin: Toggle selection as Hanzi pinyin` command to add or remove the marker around selected text. Its command ID is unchanged, so an existing hotkey continues to work. You can assign or change the shortcut in Obsidian Settings → Hotkeys.
 
