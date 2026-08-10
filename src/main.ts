@@ -1,7 +1,27 @@
-import { Notice, Plugin } from "obsidian";
+import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
 import { pinyin } from "pinyin-pro";
 
 const HANZI_PATTERN = /\p{Script=Han}+/gu;
+const SPAN_OPENING = '<span class="hanzi-pinyin">';
+const SPAN_CLOSING = "</span>";
+
+interface HanziPinyinSettings {
+  showPinyinInLivePreview: boolean;
+  showPinyinInReadingView: boolean;
+  characterSize: number;
+  characterFont: string;
+  pinyinSize: number;
+  pinyinFont: string;
+}
+
+const DEFAULT_SETTINGS: HanziPinyinSettings = {
+  showPinyinInLivePreview: true,
+  showPinyinInReadingView: true,
+  characterSize: 2.5,
+  characterFont: '"Kaiti SC", "STKaiti", "KaiTi", serif',
+  pinyinSize: 0.35,
+  pinyinFont: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
+};
 
 function toPinyin(text: string): string {
   return pinyin(text.trim(), { toneType: "symbol" });
@@ -70,27 +90,38 @@ function renderHanziPinyin(element: HTMLElement): void {
   }
 }
 
+function removeHanziPinyin(element: HTMLElement): void {
+  for (const ruby of element.querySelectorAll<HTMLElement>("ruby.hanzi-pinyin-ruby")) {
+    const base = Array.from(ruby.children).find(
+      (child) => child.classList.contains("hanzi-pinyin-base")
+    );
+    if (base) ruby.replaceWith(...Array.from(base.childNodes));
+  }
+  delete element.dataset.hanziPinyinProcessed;
+}
+
 export default class HanziPinyinPlugin extends Plugin {
+  settings: HanziPinyinSettings = DEFAULT_SETTINGS;
   private livePreviewObserver: MutationObserver | null = null;
   private livePreviewRenderTimer: number | null = null;
 
   async onload(): Promise<void> {
+    await this.loadSettings();
+    this.applySettings();
+    this.addSettingTab(new HanziPinyinSettingTab(this.app, this));
+    this.register(() => this.clearSettingsStyle());
+
     this.addCommand({
       id: "wrap-selection-as-hanzi-pinyin",
-      name: "Wrap selection as Hanzi pinyin",
-      editorCallback: (editor) => {
-        const selection = editor.getSelection();
-        if (!selection) {
-          new Notice("Select Chinese text first.");
-          return;
-        }
-        editor.replaceSelection(`<span class="hanzi-pinyin">${selection}</span>`);
-      }
+      name: "Toggle selection as Hanzi pinyin",
+      editorCallback: (editor) => this.toggleSelection(editor)
     });
 
     this.registerMarkdownPostProcessor((element) => {
       for (const zhElement of element.querySelectorAll<HTMLElement>("span.hanzi-pinyin")) {
-        renderHanziPinyin(zhElement);
+        if (this.settings.showPinyinInReadingView) {
+          renderHanziPinyin(zhElement);
+        }
       }
     });
 
@@ -100,8 +131,100 @@ export default class HanziPinyinPlugin extends Plugin {
       });
       this.livePreviewObserver.observe(document.body, { childList: true, subtree: true });
       this.register(() => this.livePreviewObserver?.disconnect());
-      this.scheduleLivePreviewRender();
+      this.register(() => {
+        if (this.livePreviewRenderTimer !== null) {
+          window.clearTimeout(this.livePreviewRenderTimer);
+        }
+      });
+      this.refreshRenderedPinyin();
     });
+  }
+
+  async updateSettings(settings: Partial<HanziPinyinSettings>): Promise<void> {
+    this.settings = { ...this.settings, ...settings };
+    await this.saveData(this.settings);
+    this.applySettings();
+    this.refreshRenderedPinyin();
+  }
+
+  private async loadSettings(): Promise<void> {
+    this.settings = {
+      ...DEFAULT_SETTINGS,
+      ...(await this.loadData())
+    };
+  }
+
+  private applySettings(): void {
+    const style = document.documentElement.style;
+    style.setProperty("--hanzi-pinyin-character-size", `${this.settings.characterSize}em`);
+    style.setProperty("--hanzi-pinyin-character-font", this.settings.characterFont);
+    style.setProperty("--hanzi-pinyin-annotation-size", `${this.settings.pinyinSize}em`);
+    style.setProperty("--hanzi-pinyin-annotation-font", this.settings.pinyinFont);
+  }
+
+  private clearSettingsStyle(): void {
+    const style = document.documentElement.style;
+    style.removeProperty("--hanzi-pinyin-character-size");
+    style.removeProperty("--hanzi-pinyin-character-font");
+    style.removeProperty("--hanzi-pinyin-annotation-size");
+    style.removeProperty("--hanzi-pinyin-annotation-font");
+  }
+
+  private toggleSelection(editor: {
+    getCursor(which?: "from" | "to"): { line: number; ch: number };
+    getLine(line: number): string;
+    getSelection(): string;
+    replaceRange(
+      replacement: string,
+      from: { line: number; ch: number },
+      to?: { line: number; ch: number }
+    ): void;
+    replaceSelection(replacement: string): void;
+  }): void {
+    const selection = editor.getSelection();
+    if (!selection) {
+      new Notice("Select Chinese text first.");
+      return;
+    }
+
+    const completeMarker = selection.match(
+      /^<span class=["']hanzi-pinyin["']>([\s\S]*)<\/span>$/i
+    );
+    if (completeMarker) {
+      editor.replaceSelection(completeMarker[1]);
+      return;
+    }
+
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    if (from.line === to.line) {
+      const line = editor.getLine(from.line);
+      const before = line.slice(0, from.ch);
+      const after = line.slice(to.ch);
+      if (before.endsWith(SPAN_OPENING) && after.startsWith(SPAN_CLOSING)) {
+        editor.replaceRange(
+          selection,
+          { line: from.line, ch: from.ch - SPAN_OPENING.length },
+          { line: to.line, ch: to.ch + SPAN_CLOSING.length }
+        );
+        return;
+      }
+    }
+
+    editor.replaceSelection(`${SPAN_OPENING}${selection}${SPAN_CLOSING}`);
+  }
+
+  private refreshRenderedPinyin(): void {
+    for (const zhElement of document.querySelectorAll<HTMLElement>(
+      ".markdown-preview-view span.hanzi-pinyin, .markdown-reading-view span.hanzi-pinyin"
+    )) {
+      if (this.settings.showPinyinInReadingView) {
+        renderHanziPinyin(zhElement);
+      } else {
+        removeHanziPinyin(zhElement);
+      }
+    }
+    this.scheduleLivePreviewRender();
   }
 
   private scheduleLivePreviewRender(): void {
@@ -111,8 +234,95 @@ export default class HanziPinyinPlugin extends Plugin {
       for (const zhElement of document.querySelectorAll<HTMLElement>(
         ".markdown-source-view.mod-cm6 span.hanzi-pinyin"
       )) {
-        renderHanziPinyin(zhElement);
+        if (this.settings.showPinyinInLivePreview) {
+          renderHanziPinyin(zhElement);
+        } else {
+          removeHanziPinyin(zhElement);
+        }
       }
     }, 0);
+  }
+}
+
+class HanziPinyinSettingTab extends PluginSettingTab {
+  constructor(app: App, private readonly plugin: HanziPinyinPlugin) {
+    super(app, plugin);
+  }
+
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    new Setting(containerEl)
+      .setName("Show pinyin in Live Preview")
+      .setDesc("Show ruby pinyin on rendered lines. The active line stays editable.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showPinyinInLivePreview)
+          .onChange((value) => this.plugin.updateSettings({ showPinyinInLivePreview: value }))
+      );
+
+    new Setting(containerEl)
+      .setName("Show pinyin in Reading View")
+      .setDesc("Show ruby pinyin in Reading View.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showPinyinInReadingView)
+          .onChange((value) => this.plugin.updateSettings({ showPinyinInReadingView: value }))
+      );
+
+    new Setting(containerEl)
+      .setName("Character size")
+      .setDesc("Size of Hanzi, relative to the surrounding text.")
+      .addSlider((slider) =>
+        slider
+          .setLimits(1, 5, 0.1)
+          .setValue(this.plugin.settings.characterSize)
+          .setDynamicTooltip()
+          .onChange((value) => this.plugin.updateSettings({ characterSize: value }))
+      );
+
+    new Setting(containerEl)
+      .setName("Character font")
+      .setDesc("A font name or CSS font stack. Default: Kaiti SC.")
+      .addText((text) =>
+        text
+          .setValue(this.plugin.settings.characterFont)
+          .onChange((value) =>
+            this.plugin.updateSettings({
+              characterFont: value.trim() || DEFAULT_SETTINGS.characterFont
+            })
+          )
+      );
+
+    new Setting(containerEl)
+      .setName("Pinyin size")
+      .setDesc("Size of pinyin, relative to the Hanzi.")
+      .addSlider((slider) =>
+        slider
+          .setLimits(0.15, 0.75, 0.05)
+          .setValue(this.plugin.settings.pinyinSize)
+          .setDynamicTooltip()
+          .onChange((value) => this.plugin.updateSettings({ pinyinSize: value }))
+      );
+
+    new Setting(containerEl)
+      .setName("Pinyin font")
+      .setDesc("A font name or CSS font stack for the pinyin annotation.")
+      .addText((text) =>
+        text
+          .setValue(this.plugin.settings.pinyinFont)
+          .onChange((value) =>
+            this.plugin.updateSettings({
+              pinyinFont: value.trim() || DEFAULT_SETTINGS.pinyinFont
+            })
+          )
+      );
+
+    new Setting(containerEl)
+      .setName("Toggle selected text")
+      .setDesc(
+        "Use the ‘Toggle selection as Hanzi pinyin’ command. Assign or change its shortcut in Obsidian Settings → Hotkeys."
+      );
   }
 }

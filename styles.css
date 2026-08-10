@@ -1,8 +1,11 @@
 /* Standard <span class="hanzi-pinyin">...</span> styling. */
 .hanzi-pinyin {
   display: inline;
-  font-family: "Kaiti SC", "STKaiti", "KaiTi", serif;
-  font-size: 2.5em;
+  font-family: var(
+    --hanzi-pinyin-character-font,
+    "Kaiti SC", "STKaiti", "KaiTi", serif
+  );
+  font-size: var(--hanzi-pinyin-character-size, 2.5em);
   font-weight: 500;
   line-height: 1;
 }
@@ -23,9 +26,11 @@
 }
 
 .hanzi-pinyin-ruby > rt {
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-    font-size: 0.35em;
+    font-family: var(
+        --hanzi-pinyin-annotation-font,
+        -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif
+    );
+    font-size: var(--hanzi-pinyin-annotation-size, 0.35em);
     font-weight: 200;
     line-height: 1;
     user-select: none;
