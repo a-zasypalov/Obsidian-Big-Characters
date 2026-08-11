@@ -32,7 +32,7 @@ const SETTINGS_SAVE_DELAY = 250;
 type PinyinFunction = (text: string, options: { toneType: "symbol" }) => string;
 type PinyinConverter = (text: string) => string;
 
-interface HanziPinyinSettings {
+interface BigCharactersSettings {
   showPinyinInLivePreview: boolean;
   showPinyinInReadingView: boolean;
   characterSize: number;
@@ -41,7 +41,7 @@ interface HanziPinyinSettings {
   pinyinFont: string;
 }
 
-const DEFAULT_SETTINGS: HanziPinyinSettings = {
+const DEFAULT_SETTINGS: BigCharactersSettings = {
   showPinyinInLivePreview: true,
   showPinyinInReadingView: true,
   characterSize: 2.5,
@@ -70,10 +70,10 @@ function appendRubyText(parent: HTMLElement, text: string, toPinyin: PinyinConve
 
     const hanzi = match[0];
     const ruby = document.createElement("ruby");
-    ruby.className = "cg-ruby";
+    ruby.className = "bc-ruby";
 
     const base = document.createElement("span");
-    base.className = "cg-base";
+    base.className = "bc-base";
     base.textContent = hanzi;
 
     const annotation = document.createElement("rt");
@@ -170,21 +170,21 @@ function renderLivePreviewEmphasis(element: HTMLElement): void {
   }
 }
 
-async function renderHanziPinyin(
+async function renderPinyin(
   element: HTMLElement,
   getPinyin: () => Promise<PinyinConverter>,
   shouldRender: () => boolean
 ): Promise<void> {
   if (
-    element.dataset.cgPinyinProcessed === "true" ||
-    element.dataset.cgPinyinLoading === "true" ||
+    element.dataset.bcPinyinProcessed === "true" ||
+    element.dataset.bcPinyinLoading === "true" ||
     !shouldRender() ||
     !hasHanzi(element.textContent ?? "")
   ) {
     return;
   }
 
-  element.dataset.cgPinyinLoading = "true";
+  element.dataset.bcPinyinLoading = "true";
   try {
     const toPinyin = await getPinyin();
     if (!element.isConnected || !shouldRender()) return;
@@ -215,27 +215,27 @@ async function renderHanziPinyin(
       textNode.replaceWith(...Array.from(wrapper.childNodes));
     }
 
-    element.dataset.cgPinyinProcessed = "true";
+    element.dataset.bcPinyinProcessed = "true";
   } catch {
     // The original Hanzi remains readable if the local engine cannot load.
   } finally {
-    delete element.dataset.cgPinyinLoading;
+    delete element.dataset.bcPinyinLoading;
   }
 }
 
-function removeHanziPinyin(element: HTMLElement): void {
-  for (const ruby of element.querySelectorAll<HTMLElement>("ruby.cg-ruby")) {
+function removePinyin(element: HTMLElement): void {
+  for (const ruby of element.querySelectorAll<HTMLElement>("ruby.bc-ruby")) {
     const base = Array.from(ruby.children).find((child) =>
-      child.classList.contains("cg-base")
+      child.classList.contains("bc-base")
     );
     if (base) ruby.replaceWith(...Array.from(base.childNodes));
   }
-  delete element.dataset.cgPinyinProcessed;
-  delete element.dataset.cgPinyinLoading;
+  delete element.dataset.bcPinyinProcessed;
+  delete element.dataset.bcPinyinLoading;
 }
 
-export default class HanziPinyinPlugin extends Plugin {
-  settings: HanziPinyinSettings = DEFAULT_SETTINGS;
+export default class BigCharactersPlugin extends Plugin {
+  settings: BigCharactersSettings = DEFAULT_SETTINGS;
   private readonly pinyinCache = new BoundedStringCache(PINYIN_CACHE_CAPACITY);
   private pinyinEnginePromise: Promise<PinyinFunction> | null = null;
   private pinyinLoadFailed = false;
@@ -246,7 +246,7 @@ export default class HanziPinyinPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
     this.applySettings();
-    this.addSettingTab(new HanziPinyinSettingTab(this.app, this));
+    this.addSettingTab(new BigCharactersSettingTab(this.app, this));
     this.register(() => {
       this.clearSettingsStyle();
       this.disconnectLivePreviewObservers();
@@ -254,7 +254,7 @@ export default class HanziPinyinPlugin extends Plugin {
     });
 
     this.addCommand({
-      id: "wrap-selection-as-hanzi-pinyin",
+      id: "wrap-selection-as-chinese-pinyin",
       name: "Toggle selection as Chinese pinyin",
       editorCallback: (editor) => this.toggleSelection(editor, CHINESE_PINYIN_MARKER_CLASS)
     });
@@ -277,7 +277,7 @@ export default class HanziPinyinPlugin extends Plugin {
     });
   }
 
-  updateSettings(settings: Partial<HanziPinyinSettings>): void {
+  updateSettings(settings: Partial<BigCharactersSettings>): void {
     const visibilityChanged =
       (settings.showPinyinInLivePreview !== undefined &&
         settings.showPinyinInLivePreview !== this.settings.showPinyinInLivePreview) ||
@@ -299,18 +299,18 @@ export default class HanziPinyinPlugin extends Plugin {
 
   private applySettings(): void {
     const style = document.documentElement.style;
-    style.setProperty("--cg-character-size", `${this.settings.characterSize}em`);
-    style.setProperty("--cg-character-font", this.settings.characterFont);
-    style.setProperty("--cg-annotation-size", `${this.settings.pinyinSize}em`);
-    style.setProperty("--cg-annotation-font", this.settings.pinyinFont);
+    style.setProperty("--bc-character-size", `${this.settings.characterSize}em`);
+    style.setProperty("--bc-character-font", this.settings.characterFont);
+    style.setProperty("--bc-annotation-size", `${this.settings.pinyinSize}em`);
+    style.setProperty("--bc-annotation-font", this.settings.pinyinFont);
   }
 
   private clearSettingsStyle(): void {
     const style = document.documentElement.style;
-    style.removeProperty("--cg-character-size");
-    style.removeProperty("--cg-character-font");
-    style.removeProperty("--cg-annotation-size");
-    style.removeProperty("--cg-annotation-font");
+    style.removeProperty("--bc-character-size");
+    style.removeProperty("--bc-character-font");
+    style.removeProperty("--bc-annotation-size");
+    style.removeProperty("--bc-annotation-font");
   }
 
   private scheduleSettingsSave(): void {
@@ -351,7 +351,7 @@ export default class HanziPinyinPlugin extends Plugin {
       .catch((error: unknown) => {
       this.pinyinLoadFailed = true;
       this.pinyinEnginePromise = null;
-      new Notice("Characters Guide could not start its local pinyin engine.");
+      new Notice("Big Characters could not start its local pinyin engine.");
       throw error;
       });
 
@@ -408,7 +408,7 @@ export default class HanziPinyinPlugin extends Plugin {
     element: HTMLElement,
     context: MarkdownPostProcessorContext
   ): void {
-    if (element.closest("[data-cg-safe-render]")) return;
+    if (element.closest("[data-bc-safe-render]")) return;
 
     const section = context.getSectionInfo(element);
     const safeMarkdown = section ? protectGuideEmphasis(section.text) : null;
@@ -432,7 +432,7 @@ export default class HanziPinyinPlugin extends Plugin {
     transform: ReturnType<typeof transformMarkerSource>
   ): Promise<void> {
     const temporaryElement = document.createElement("div");
-    temporaryElement.dataset.cgSafeRender = "true";
+    temporaryElement.dataset.bcSafeRender = "true";
     const renderChild = new MarkdownRenderChild(element);
     context.addChild(renderChild);
 
@@ -462,7 +462,7 @@ export default class HanziPinyinPlugin extends Plugin {
     markdown: string
   ): Promise<void> {
     const temporaryElement = document.createElement("div");
-    temporaryElement.dataset.cgSafeRender = "true";
+    temporaryElement.dataset.bcSafeRender = "true";
     const renderChild = new MarkdownRenderChild(element);
     context.addChild(renderChild);
 
@@ -511,7 +511,7 @@ export default class HanziPinyinPlugin extends Plugin {
   }
 
   private renderMarker(element: HTMLElement, shouldRender: () => boolean): Promise<void> {
-    return renderHanziPinyin(element, () => this.getPinyinConverter(), shouldRender);
+    return renderPinyin(element, () => this.getPinyinConverter(), shouldRender);
   }
 
   private refreshRenderedPinyin(): void {
@@ -521,7 +521,7 @@ export default class HanziPinyinPlugin extends Plugin {
       if (this.settings.showPinyinInReadingView) {
         void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
       } else {
-        removeHanziPinyin(marker);
+        removePinyin(marker);
       }
     }
 
@@ -614,7 +614,7 @@ export default class HanziPinyinPlugin extends Plugin {
       if (!marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
         if (!isActiveLine) renderLivePreviewEmphasis(marker);
       } else if (!this.settings.showPinyinInLivePreview || isActiveLine) {
-        removeHanziPinyin(marker);
+        removePinyin(marker);
       } else {
         void this.renderMarker(marker, () => this.settings.showPinyinInLivePreview);
       }
@@ -629,8 +629,8 @@ export default class HanziPinyinPlugin extends Plugin {
   }
 }
 
-class HanziPinyinSettingTab extends PluginSettingTab {
-  constructor(app: App, private readonly plugin: HanziPinyinPlugin) {
+class BigCharactersSettingTab extends PluginSettingTab {
+  constructor(app: App, private readonly plugin: BigCharactersPlugin) {
     super(app, plugin);
   }
 
@@ -705,15 +705,24 @@ class HanziPinyinSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Toggle selected text as Chinese")
-      .setDesc(
-        "Use ‘Toggle selection as Chinese’ to add or remove cg-zh. It never shows pinyin. Assign its shortcut in Obsidian Settings → Hotkeys."
+      .setName("Restore default font settings")
+      .setDesc("Restore the default character and pinyin fonts and sizes.")
+      .addButton((button) =>
+        button.setButtonText("Restore defaults").onClick(() => {
+          this.plugin.updateSettings({
+            characterSize: DEFAULT_SETTINGS.characterSize,
+            characterFont: DEFAULT_SETTINGS.characterFont,
+            pinyinSize: DEFAULT_SETTINGS.pinyinSize,
+            pinyinFont: DEFAULT_SETTINGS.pinyinFont
+          });
+          this.display();
+        })
       );
 
     new Setting(containerEl)
-      .setName("Toggle selected text as Chinese pinyin")
+      .setName("Set hotkeys to toggle selected text to large characters")
       .setDesc(
-        "Use ‘Toggle selection as Chinese pinyin’ to add or remove cg-zh-pinyin. Assign its shortcut in Obsidian Settings → Hotkeys."
+        "Assign shortcuts in Obsidian Settings → Hotkeys to toggle large characters and/or Pinyin."
       );
   }
 }

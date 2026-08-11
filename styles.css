@@ -1,25 +1,25 @@
-/* Chinese guide markers, with or without pinyin. */
-.cg-zh,
-.cg-zh-pinyin {
+/* Big Chinese characters, with or without pinyin. */
+.bc-zh-cn,
+.bc-zh-cn-pinyin {
   display: inline-block;
   font-family: var(
-    --cg-character-font,
+    --bc-character-font,
     "Kaiti SC", "STKaiti", "KaiTi", serif
   );
-  font-size: var(--cg-character-size, 2.5em);
+  font-size: var(--bc-character-size, 2.5em);
   font-weight: 500;
   line-height: 1;
   margin-bottom: 0.12em;
   vertical-align: baseline;
 }
 
-.cg-ruby {
+.bc-ruby {
   /* Native ruby layout keeps the Hanzi on the text baseline. */
   ruby-position: over;
   vertical-align: baseline;
 }
 
-.cg-ruby > .cg-base {
+.bc-ruby > .bc-base {
   background: transparent !important;
   color: inherit;
   font-family: inherit !important;
@@ -28,12 +28,12 @@
   line-height: inherit !important;
 }
 
-.cg-ruby > rt {
+.bc-ruby > rt {
   font-family: var(
-    --cg-annotation-font,
+    --bc-annotation-font,
     -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif
   );
-  font-size: var(--cg-annotation-size, 0.35em);
+  font-size: var(--bc-annotation-size, 0.35em);
   font-weight: 200;
   line-height: 1;
   user-select: none;

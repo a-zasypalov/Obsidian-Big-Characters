@@ -18,8 +18,8 @@ test("recognizes the marker class in any attribute order and class list", () => 
   assert.equal(transform.markers.length, 1);
   assert.equal(transform.markers[0].openingTag, `<span data-topic="travel" class="note ${CHINESE_PINYIN_MARKER_CLASS}">`);
   assert.equal(transform.requiresMarkdownRender, true);
-  assert.match(transform.markdown, /<!--cg-marker-open-0-->/u);
-  assert.match(transform.markdown, /<!--cg-marker-close-0-->/u);
+  assert.match(transform.markdown, /<!--bc-marker-open-0-->/u);
+  assert.match(transform.markdown, /<!--bc-marker-close-0-->/u);
 });
 
 test("passes Markdown formatting through unchanged for Obsidian to render", () => {
@@ -71,7 +71,7 @@ test("wraps and unwraps a selected marker without changing its content", () => {
   );
 });
 
-test("recognizes cg-zh as a guide marker without treating it as a pinyin marker", () => {
+test("recognizes bc-zh-cn as a guide marker without treating it as a pinyin marker", () => {
   const opening = `<span class="${CHINESE_MARKER_CLASS}">`;
   assert.equal(openingTagHasPinyinMarkerClass(opening), false);
   assert.equal(transformMarkerSource(`${opening}**要**</span>`).markers.length, 1);

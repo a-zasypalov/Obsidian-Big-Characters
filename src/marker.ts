@@ -1,6 +1,6 @@
-// `zh` is the ISO 639-1 / BCP 47 language tag for Chinese.
-export const CHINESE_MARKER_CLASS = "cg-zh";
-export const CHINESE_PINYIN_MARKER_CLASS = "cg-zh-pinyin";
+// `zh-cn` identifies Chinese as used in mainland China.
+export const CHINESE_MARKER_CLASS = "bc-zh-cn";
+export const CHINESE_PINYIN_MARKER_CLASS = "bc-zh-cn-pinyin";
 export type GuideMarkerClass = typeof CHINESE_MARKER_CLASS | typeof CHINESE_PINYIN_MARKER_CLASS;
 export const GUIDE_MARKER_SELECTOR = `span.${CHINESE_MARKER_CLASS}, span.${CHINESE_PINYIN_MARKER_CLASS}`;
 export const CHINESE_PINYIN_MARKER_SELECTOR = `span.${CHINESE_PINYIN_MARKER_CLASS}`;
@@ -140,8 +140,8 @@ export function transformMarkerSource(markdown: string): MarkerSourceTransform {
     const marker: MarkerSentinel = {
       id,
       openingTag: tag,
-      openingComment: `cg-marker-open-${id}`,
-      closingComment: `cg-marker-close-${id}`
+      openingComment: `bc-marker-open-${id}`,
+      closingComment: `bc-marker-close-${id}`
     };
     markers.push(marker);
     parts.push(`<!--${marker.openingComment}-->`);
