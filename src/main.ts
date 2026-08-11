@@ -1,7 +1,5 @@
 import {
   App,
-  MarkdownRenderChild,
-  MarkdownRenderer,
   MarkdownView,
   Notice,
   Plugin,
@@ -17,10 +15,8 @@ import {
   CHINESE_PINYIN_MARKER_CLASS,
   CHINESE_PINYIN_MARKER_SELECTOR,
   SPAN_CLOSING,
-  markerSpanOpening,
-  protectGuideEmphasis,
-  restoreMarkerSpans,
-  transformMarkerSource
+  extractMarkerContents,
+  markerSpanOpening
 } from "./marker";
 import { unwrapCompleteMarker, wrapSelection } from "./selection";
 import { createPinyinEngine } from "virtual:pinyin-engine";
@@ -192,7 +188,7 @@ async function renderPinyin(
   try {
     const toPinyin = await getPinyin();
     if (!element.isConnected || !shouldRender()) return;
-    if (element.closest(".markdown-source-view.mod-cm6")) renderLivePreviewEmphasis(element);
+    renderLivePreviewEmphasis(element);
 
     const textNodes: Text[] = [];
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
@@ -416,106 +412,49 @@ export default class BigCharactersPlugin extends Plugin {
     element: HTMLElement,
     context: MarkdownPostProcessorContext
   ): void {
-    if (element.closest("[data-bc-safe-render]")) return;
+    const markers = this.guideMarkers(element);
+    if (!markers.length) return;
 
+    // Reading View renders the marker's inner Markdown through its own parser,
+    // which mangles emphasis next to CJK (e.g. `**荷兰***要*`). Re-render each
+    // marker from the original source with the same parser Live Preview uses.
+    // getSectionInfo().text is the whole note; slice out this section's lines.
     const section = context.getSectionInfo(element);
-    const safeMarkdown = section ? protectGuideEmphasis(section.text) : null;
-    if (section && safeMarkdown && safeMarkdown !== section.text) {
-      void this.renderProtectedReadingSection(element, context, safeMarkdown);
-      return;
-    }
+    const sources = section
+      ? extractMarkerContents(
+          section.text.split("\n").slice(section.lineStart, section.lineEnd + 1).join("\n")
+        )
+      : [];
+    const bySource = sources.length === markers.length;
 
-    const transform = section ? transformMarkerSource(section.text) : null;
-    if (section && transform?.requiresMarkdownRender) {
-      void this.renderSafeReadingSection(element, context, transform);
-      return;
-    }
-
-    this.renderReadingMarkers(element);
+    markers.forEach((marker, index) => {
+      const pinyin = marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS);
+      // Prefer the original source; fall back to the marker's existing content
+      // when the source can't be recovered (e.g. getSectionInfo unavailable).
+      const source = bySource && sources[index].pinyin === pinyin ? sources[index] : null;
+      this.renderReadingMarker(marker, source?.content ?? null, pinyin);
+    });
   }
 
-  private async renderSafeReadingSection(
-    element: HTMLElement,
-    context: MarkdownPostProcessorContext,
-    transform: ReturnType<typeof transformMarkerSource>
-  ): Promise<void> {
-    const temporaryElement = document.createElement("div");
-    temporaryElement.dataset.bcSafeRender = "true";
-    const renderChild = new MarkdownRenderChild(element);
-    context.addChild(renderChild);
-
-    await MarkdownRenderer.render(
-      this.app,
-      transform.markdown,
-      temporaryElement,
-      context.sourcePath,
-      renderChild
-    );
-
-    const markerElements = restoreMarkerSpans(temporaryElement, transform);
-    if (markerElements.length === 0) return;
-
-    this.replaceReadingSection(element, temporaryElement);
-
-    for (const marker of markerElements) {
-      if (marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
-        void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
-      }
-    }
-  }
-
-  private async renderProtectedReadingSection(
-    element: HTMLElement,
-    context: MarkdownPostProcessorContext,
-    markdown: string
-  ): Promise<void> {
-    const temporaryElement = document.createElement("div");
-    temporaryElement.dataset.bcSafeRender = "true";
-    const renderChild = new MarkdownRenderChild(element);
-    context.addChild(renderChild);
-
-    await MarkdownRenderer.render(
-      this.app,
-      markdown,
-      temporaryElement,
-      context.sourcePath,
-      renderChild
-    );
-
-    const markerElements = Array.from(
-      temporaryElement.querySelectorAll<HTMLElement>(GUIDE_MARKER_SELECTOR)
-    );
-    if (markerElements.length === 0) return;
-
-    this.replaceReadingSection(element, temporaryElement);
-
-    for (const marker of markerElements) {
-      if (marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
-        void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
-      }
-    }
-  }
-
-  private replaceReadingSection(element: HTMLElement, temporaryElement: HTMLElement): void {
-    const renderedParagraph = temporaryElement.firstElementChild;
-    if (
-      element.tagName === "P" &&
-      renderedParagraph instanceof HTMLParagraphElement &&
-      temporaryElement.children.length === 1
-    ) {
-      element.replaceChildren(...Array.from(renderedParagraph.childNodes));
-    } else if (element.tagName === "P") {
-      element.replaceWith(...Array.from(temporaryElement.childNodes));
+  private renderReadingMarker(marker: HTMLElement, content: string | null, pinyin: boolean): void {
+    if (content !== null) {
+      const wrapper = document.createElement("span");
+      appendLivePreviewEmphasis(wrapper, content);
+      delete marker.dataset.bcPinyinProcessed;
+      marker.replaceChildren(...Array.from(wrapper.childNodes));
     } else {
-      element.replaceChildren(...Array.from(temporaryElement.childNodes));
+      renderLivePreviewEmphasis(marker);
     }
-  }
-
-  private renderReadingMarkers(element: HTMLElement): void {
-    if (!this.settings.showPinyinInReadingView) return;
-    for (const marker of element.querySelectorAll<HTMLElement>(CHINESE_PINYIN_MARKER_SELECTOR)) {
+    if (pinyin && this.settings.showPinyinInReadingView) {
       void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
     }
+  }
+
+  private guideMarkers(element: HTMLElement): HTMLElement[] {
+    return [
+      ...(element.matches(GUIDE_MARKER_SELECTOR) ? [element] : []),
+      ...element.querySelectorAll<HTMLElement>(GUIDE_MARKER_SELECTOR)
+    ];
   }
 
   private renderMarker(element: HTMLElement, shouldRender: () => boolean): Promise<void> {
