@@ -187,7 +187,10 @@ async function renderPinyin(
   element.dataset.bcPinyinLoading = "true";
   try {
     const toPinyin = await getPinyin();
-    if (!element.isConnected || !shouldRender()) return;
+    // Note: don't bail on !element.isConnected here. Reading View post-processes
+    // sections while still detached; once the engine is cached getPinyin resolves
+    // before attach, and skipping would leave scroll-loaded sections without ruby.
+    if (!shouldRender()) return;
     renderLivePreviewEmphasis(element);
 
     const textNodes: Text[] = [];
