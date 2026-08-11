@@ -9,8 +9,12 @@
   font-size: var(--bc-character-size, 2.5em);
   font-weight: 500;
   line-height: 1;
-  margin-bottom: 0.12em;
+  margin-bottom: var(--bc-character-bottom-spacing, 0.3em);
   vertical-align: baseline;
+}
+
+.bc-zh-cn-pinyin {
+  margin-top: var(--bc-ruby-top-spacing, 0em);
 }
 
 .bc-ruby {

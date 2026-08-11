@@ -36,8 +36,10 @@ interface BigCharactersSettings {
   showPinyinInLivePreview: boolean;
   showPinyinInReadingView: boolean;
   characterSize: number;
+  characterBottomSpacing: number;
   characterFont: string;
   pinyinSize: number;
+  rubyTopSpacing: number;
   pinyinFont: string;
 }
 
@@ -45,8 +47,10 @@ const DEFAULT_SETTINGS: BigCharactersSettings = {
   showPinyinInLivePreview: true,
   showPinyinInReadingView: true,
   characterSize: 2.5,
+  characterBottomSpacing: 0.3,
   characterFont: '"Kaiti SC", "STKaiti", "KaiTi", serif',
   pinyinSize: 0.35,
+  rubyTopSpacing: 0.1,
   pinyinFont: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
 };
 
@@ -300,16 +304,20 @@ export default class BigCharactersPlugin extends Plugin {
   private applySettings(): void {
     const style = document.documentElement.style;
     style.setProperty("--bc-character-size", `${this.settings.characterSize}em`);
+    style.setProperty("--bc-character-bottom-spacing", `${this.settings.characterBottomSpacing}em`);
     style.setProperty("--bc-character-font", this.settings.characterFont);
     style.setProperty("--bc-annotation-size", `${this.settings.pinyinSize}em`);
+    style.setProperty("--bc-ruby-top-spacing", `${this.settings.rubyTopSpacing}em`);
     style.setProperty("--bc-annotation-font", this.settings.pinyinFont);
   }
 
   private clearSettingsStyle(): void {
     const style = document.documentElement.style;
     style.removeProperty("--bc-character-size");
+    style.removeProperty("--bc-character-bottom-spacing");
     style.removeProperty("--bc-character-font");
     style.removeProperty("--bc-annotation-size");
+    style.removeProperty("--bc-ruby-top-spacing");
     style.removeProperty("--bc-annotation-font");
   }
 
@@ -668,6 +676,17 @@ class BigCharactersSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Character bottom spacing")
+      .setDesc("Extra space below large characters, relative to their size.")
+      .addSlider((slider) =>
+        slider
+          .setLimits(0, 1, 0.05)
+          .setValue(this.plugin.settings.characterBottomSpacing)
+          .setDynamicTooltip()
+          .onChange((value) => this.plugin.updateSettings({ characterBottomSpacing: value }))
+      );
+
+    new Setting(containerEl)
       .setName("Character font")
       .setDesc("A font name or CSS font stack. Default: Kaiti SC.")
       .addText((text) =>
@@ -689,6 +708,17 @@ class BigCharactersSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.pinyinSize)
           .setDynamicTooltip()
           .onChange((value) => this.plugin.updateSettings({ pinyinSize: value }))
+      );
+
+    new Setting(containerEl)
+      .setName("Ruby top spacing")
+      .setDesc("Extra space above pinyin annotations, relative to the character size.")
+      .addSlider((slider) =>
+        slider
+          .setLimits(0, 1, 0.05)
+          .setValue(this.plugin.settings.rubyTopSpacing)
+          .setDynamicTooltip()
+          .onChange((value) => this.plugin.updateSettings({ rubyTopSpacing: value }))
       );
 
     new Setting(containerEl)
