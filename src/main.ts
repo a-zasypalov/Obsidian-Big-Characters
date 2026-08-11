@@ -12,11 +12,12 @@ import {
 import { BoundedStringCache } from "./bounded-cache";
 import {
   CHINESE_MARKER_CLASS,
+  type GuideMarkerClass,
   GUIDE_MARKER_SELECTOR,
-  PINYIN_MARKER_CLASS,
-  PINYIN_MARKER_SELECTOR,
+  CHINESE_PINYIN_MARKER_CLASS,
+  CHINESE_PINYIN_MARKER_SELECTOR,
   SPAN_CLOSING,
-  PINYIN_SPAN_OPENING,
+  markerSpanOpening,
   protectGuideEmphasis,
   restoreMarkerSpans,
   transformMarkerSource
@@ -50,7 +51,7 @@ const DEFAULT_SETTINGS: HanziPinyinSettings = {
 };
 
 function markerSelector(scope: string): string {
-  return `${scope} ${PINYIN_MARKER_SELECTOR}`;
+  return `${scope} ${CHINESE_PINYIN_MARKER_SELECTOR}`;
 }
 
 function hasHanzi(text: string): boolean {
@@ -255,7 +256,12 @@ export default class HanziPinyinPlugin extends Plugin {
     this.addCommand({
       id: "wrap-selection-as-hanzi-pinyin",
       name: "Toggle selection as Chinese pinyin",
-      editorCallback: (editor) => this.toggleSelection(editor)
+      editorCallback: (editor) => this.toggleSelection(editor, CHINESE_PINYIN_MARKER_CLASS)
+    });
+    this.addCommand({
+      id: "wrap-selection-as-chinese",
+      name: "Toggle selection as Chinese",
+      editorCallback: (editor) => this.toggleSelection(editor, CHINESE_MARKER_CLASS)
     });
 
     this.registerMarkdownPostProcessor((element, context) => {
@@ -352,24 +358,27 @@ export default class HanziPinyinPlugin extends Plugin {
     return this.pinyinEnginePromise;
   }
 
-  private toggleSelection(editor: {
-    getCursor(which?: "from" | "to"): { line: number; ch: number };
-    getLine(line: number): string;
-    getSelection(): string;
-    replaceRange(
-      replacement: string,
-      from: { line: number; ch: number },
-      to?: { line: number; ch: number }
-    ): void;
-    replaceSelection(replacement: string): void;
-  }): void {
+  private toggleSelection(
+    editor: {
+      getCursor(which?: "from" | "to"): { line: number; ch: number };
+      getLine(line: number): string;
+      getSelection(): string;
+      replaceRange(
+        replacement: string,
+        from: { line: number; ch: number },
+        to?: { line: number; ch: number }
+      ): void;
+      replaceSelection(replacement: string): void;
+    },
+    markerClass: GuideMarkerClass
+  ): void {
     const selection = editor.getSelection();
     if (!selection) {
       new Notice("Select Chinese text first.");
       return;
     }
 
-    const unwrappedSelection = unwrapCompleteMarker(selection);
+    const unwrappedSelection = unwrapCompleteMarker(selection, markerClass);
     if (unwrappedSelection !== null) {
       editor.replaceSelection(unwrappedSelection);
       return;
@@ -381,17 +390,18 @@ export default class HanziPinyinPlugin extends Plugin {
       const line = editor.getLine(from.line);
       const before = line.slice(0, from.ch);
       const after = line.slice(to.ch);
-      if (before.endsWith(PINYIN_SPAN_OPENING) && after.startsWith(SPAN_CLOSING)) {
+      const opening = markerSpanOpening(markerClass);
+      if (before.endsWith(opening) && after.startsWith(SPAN_CLOSING)) {
         editor.replaceRange(
           selection,
-          { line: from.line, ch: from.ch - PINYIN_SPAN_OPENING.length },
+          { line: from.line, ch: from.ch - opening.length },
           { line: to.line, ch: to.ch + SPAN_CLOSING.length }
         );
         return;
       }
     }
 
-    editor.replaceSelection(wrapSelection(selection));
+    editor.replaceSelection(wrapSelection(selection, markerClass));
   }
 
   private processReadingSection(
@@ -440,7 +450,7 @@ export default class HanziPinyinPlugin extends Plugin {
     this.replaceReadingSection(element, temporaryElement);
 
     for (const marker of markerElements) {
-      if (marker.classList.contains(PINYIN_MARKER_CLASS)) {
+      if (marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
         void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
       }
     }
@@ -472,7 +482,7 @@ export default class HanziPinyinPlugin extends Plugin {
     this.replaceReadingSection(element, temporaryElement);
 
     for (const marker of markerElements) {
-      if (marker.classList.contains(PINYIN_MARKER_CLASS)) {
+      if (marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
         void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
       }
     }
@@ -495,7 +505,7 @@ export default class HanziPinyinPlugin extends Plugin {
 
   private renderReadingMarkers(element: HTMLElement): void {
     if (!this.settings.showPinyinInReadingView) return;
-    for (const marker of element.querySelectorAll<HTMLElement>(PINYIN_MARKER_SELECTOR)) {
+    for (const marker of element.querySelectorAll<HTMLElement>(CHINESE_PINYIN_MARKER_SELECTOR)) {
       void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
     }
   }
@@ -601,7 +611,7 @@ export default class HanziPinyinPlugin extends Plugin {
   private renderLivePreviewRoot(root: HTMLElement): void {
     for (const marker of root.querySelectorAll<HTMLElement>(GUIDE_MARKER_SELECTOR)) {
       const isActiveLine = marker.closest(".cm-activeLine") !== null;
-      if (!marker.classList.contains(PINYIN_MARKER_CLASS)) {
+      if (!marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
         if (!isActiveLine) renderLivePreviewEmphasis(marker);
       } else if (!this.settings.showPinyinInLivePreview || isActiveLine) {
         removeHanziPinyin(marker);
@@ -695,9 +705,15 @@ class HanziPinyinSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Toggle selected text")
+      .setName("Toggle selected text as Chinese")
       .setDesc(
-        "Use the ‘Toggle selection as Hanzi pinyin’ command. Assign or change its shortcut in Obsidian Settings → Hotkeys."
+        "Use ‘Toggle selection as Chinese’ to add or remove cg-zh. It never shows pinyin. Assign its shortcut in Obsidian Settings → Hotkeys."
+      );
+
+    new Setting(containerEl)
+      .setName("Toggle selected text as Chinese pinyin")
+      .setDesc(
+        "Use ‘Toggle selection as Chinese pinyin’ to add or remove cg-zh-pinyin. Assign its shortcut in Obsidian Settings → Hotkeys."
       );
   }
 }

@@ -1,9 +1,10 @@
 // `zh` is the ISO 639-1 / BCP 47 language tag for Chinese.
 export const CHINESE_MARKER_CLASS = "cg-zh";
-export const PINYIN_MARKER_CLASS = "cg-zh-pinyin";
-export const GUIDE_MARKER_SELECTOR = `span.${CHINESE_MARKER_CLASS}, span.${PINYIN_MARKER_CLASS}`;
-export const PINYIN_MARKER_SELECTOR = `span.${PINYIN_MARKER_CLASS}`;
-export const PINYIN_SPAN_OPENING = `<span class="${PINYIN_MARKER_CLASS}">`;
+export const CHINESE_PINYIN_MARKER_CLASS = "cg-zh-pinyin";
+export type GuideMarkerClass = typeof CHINESE_MARKER_CLASS | typeof CHINESE_PINYIN_MARKER_CLASS;
+export const GUIDE_MARKER_SELECTOR = `span.${CHINESE_MARKER_CLASS}, span.${CHINESE_PINYIN_MARKER_CLASS}`;
+export const CHINESE_PINYIN_MARKER_SELECTOR = `span.${CHINESE_PINYIN_MARKER_CLASS}`;
+export const PINYIN_SPAN_OPENING = `<span class="${CHINESE_PINYIN_MARKER_CLASS}">`;
 export const SPAN_CLOSING = "</span>";
 
 const SPAN_TAG_PATTERN = /<\/?span\b[^>]*>/giu;
@@ -31,7 +32,7 @@ interface SpanStackEntry {
   contentStart: number;
 }
 
-function openingTagHasClass(tag: string, className: string): boolean {
+export function openingTagHasClass(tag: string, className: GuideMarkerClass): boolean {
   if (/^<\//u.test(tag)) return false;
 
   const classValue = tag.match(CLASS_ATTRIBUTE_PATTERN)?.slice(1).find(Boolean);
@@ -41,12 +42,16 @@ function openingTagHasClass(tag: string, className: string): boolean {
 export function openingTagHasGuideClass(tag: string): boolean {
   return (
     openingTagHasClass(tag, CHINESE_MARKER_CLASS) ||
-    openingTagHasClass(tag, PINYIN_MARKER_CLASS)
+    openingTagHasClass(tag, CHINESE_PINYIN_MARKER_CLASS)
   );
 }
 
 export function openingTagHasPinyinMarkerClass(tag: string): boolean {
-  return openingTagHasClass(tag, PINYIN_MARKER_CLASS);
+  return openingTagHasClass(tag, CHINESE_PINYIN_MARKER_CLASS);
+}
+
+export function markerSpanOpening(className: GuideMarkerClass): string {
+  return `<span class="${className}">`;
 }
 
 function protectAdjacentBoldItalic(content: string): string {

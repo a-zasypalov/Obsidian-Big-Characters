@@ -4,7 +4,7 @@ An Obsidian plugin for styling Chinese characters, with optional automatic ruby 
 
 Use `<span class="cg-zh">...</span>` for Chinese characters without pinyin, such as a flashcard prompt. Use `<span class="cg-zh-pinyin">...</span>` when pinyin should be shown according to the plugin’s Reading View and Live Preview settings. Both markers support bold and italic text.
 
-Use the `Characters Guide: Toggle selection as Chinese pinyin` command to add or remove the `cg-zh-pinyin` marker around selected text. Its command ID is unchanged, so an existing hotkey continues to work. You can assign or change the shortcut in Obsidian Settings → Hotkeys.
+Use `Characters Guide: Toggle selection as Chinese` to add or remove `cg-zh`, or `Characters Guide: Toggle selection as Chinese pinyin` for `cg-zh-pinyin`. The pinyin command ID is unchanged, so its existing hotkey continues to work. Assign shortcuts in Obsidian Settings → Hotkeys.
 
 ## Settings
 

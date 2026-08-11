@@ -3,7 +3,8 @@ import test from "node:test";
 import { BoundedStringCache } from "../src/bounded-cache";
 import {
   CHINESE_MARKER_CLASS,
-  PINYIN_MARKER_CLASS,
+  CHINESE_PINYIN_MARKER_CLASS,
+  markerSpanOpening,
   openingTagHasPinyinMarkerClass,
   protectGuideEmphasis,
   transformMarkerSource
@@ -11,18 +12,18 @@ import {
 import { unwrapCompleteMarker, wrapSelection } from "../src/selection";
 
 test("recognizes the marker class in any attribute order and class list", () => {
-  const source = `<span data-topic="travel" class="note ${PINYIN_MARKER_CLASS}">**荷兰***要*</span>`;
+  const source = `<span data-topic="travel" class="note ${CHINESE_PINYIN_MARKER_CLASS}">**荷兰***要*</span>`;
   const transform = transformMarkerSource(source);
 
   assert.equal(transform.markers.length, 1);
-  assert.equal(transform.markers[0].openingTag, `<span data-topic="travel" class="note ${PINYIN_MARKER_CLASS}">`);
+  assert.equal(transform.markers[0].openingTag, `<span data-topic="travel" class="note ${CHINESE_PINYIN_MARKER_CLASS}">`);
   assert.equal(transform.requiresMarkdownRender, true);
   assert.match(transform.markdown, /<!--cg-marker-open-0-->/u);
   assert.match(transform.markdown, /<!--cg-marker-close-0-->/u);
 });
 
 test("passes Markdown formatting through unchanged for Obsidian to render", () => {
-  const source = `<span class="${PINYIN_MARKER_CLASS}">**荷兰***要* \\*literal\\* \`代码\` [链接](https://example.com)</span>`;
+  const source = `<span class="${CHINESE_PINYIN_MARKER_CLASS}">**荷兰***要* \\*literal\\* \`代码\` [链接](https://example.com)</span>`;
   const transform = transformMarkerSource(source);
 
   assert.equal(transform.requiresMarkdownRender, true);
@@ -33,8 +34,8 @@ test("passes Markdown formatting through unchanged for Obsidian to render", () =
 });
 
 test("does not alter a marker without Markdown and leaves malformed markers alone", () => {
-  const plain = `<span class="${PINYIN_MARKER_CLASS}">要三小时。</span>`;
-  const malformed = `<span class="${PINYIN_MARKER_CLASS}">要三小时。`;
+  const plain = `<span class="${CHINESE_PINYIN_MARKER_CLASS}">要三小时。</span>`;
+  const malformed = `<span class="${CHINESE_PINYIN_MARKER_CLASS}">要三小时。`;
 
   assert.equal(transformMarkerSource(plain).requiresMarkdownRender, false);
   assert.deepEqual(transformMarkerSource(malformed), {
@@ -45,15 +46,29 @@ test("does not alter a marker without Markdown and leaves malformed markers alon
 });
 
 test("wraps and unwraps a selected marker without changing its content", () => {
-  const wrapped = wrapSelection("**要**");
-  assert.equal(wrapped, `<span class="${PINYIN_MARKER_CLASS}">**要**</span>`);
-  assert.equal(unwrapCompleteMarker(wrapped), "**要**");
+  const wrapped = wrapSelection("**要**", CHINESE_PINYIN_MARKER_CLASS);
+  assert.equal(wrapped, `<span class="${CHINESE_PINYIN_MARKER_CLASS}">**要**</span>`);
+  assert.equal(unwrapCompleteMarker(wrapped, CHINESE_PINYIN_MARKER_CLASS), "**要**");
   assert.equal(
-    unwrapCompleteMarker(`<span data-kind="study" class="${PINYIN_MARKER_CLASS} extra">要</span>`),
+    unwrapCompleteMarker(
+      `<span data-kind="study" class="${CHINESE_PINYIN_MARKER_CLASS} extra">要</span>`,
+      CHINESE_PINYIN_MARKER_CLASS
+    ),
     "要"
   );
-  assert.equal(unwrapCompleteMarker("要"), null);
-  assert.equal(unwrapCompleteMarker(`<span class="${CHINESE_MARKER_CLASS}">要</span>`), null);
+  assert.equal(unwrapCompleteMarker("要", CHINESE_PINYIN_MARKER_CLASS), null);
+  assert.equal(
+    unwrapCompleteMarker(`<span class="${CHINESE_MARKER_CLASS}">要</span>`, CHINESE_PINYIN_MARKER_CLASS),
+    null
+  );
+  assert.equal(
+    wrapSelection("要", CHINESE_MARKER_CLASS),
+    `<span class="${CHINESE_MARKER_CLASS}">要</span>`
+  );
+  assert.equal(
+    markerSpanOpening(CHINESE_MARKER_CLASS),
+    `<span class="${CHINESE_MARKER_CLASS}">`
+  );
 });
 
 test("recognizes cg-zh as a guide marker without treating it as a pinyin marker", () => {
@@ -63,14 +78,14 @@ test("recognizes cg-zh as a guide marker without treating it as a pinyin marker"
 });
 
 test("protects adjacent bold and italic markers inside guide spans", () => {
-  const source = `<span class="${PINYIN_MARKER_CLASS}">我去**荷兰***要*三小时。</span>\n(Driving to **Netherlands** *takes* 3 hours.)`;
+  const source = `<span class="${CHINESE_PINYIN_MARKER_CLASS}">我去**荷兰***要*三小时。</span>\n(Driving to **Netherlands** *takes* 3 hours.)`;
   const protectedSource = protectGuideEmphasis(source);
 
   assert.match(protectedSource, /我去<strong>荷兰<\/strong><em>要<\/em>三小时。/u);
   assert.match(protectedSource, /\*\*Netherlands\*\* \*takes\*/u);
   assert.equal(
-    protectGuideEmphasis(`<span class="${PINYIN_MARKER_CLASS}">\`**荷兰***要*\`</span>`),
-    `<span class="${PINYIN_MARKER_CLASS}">\`**荷兰***要*\`</span>`
+    protectGuideEmphasis(`<span class="${CHINESE_PINYIN_MARKER_CLASS}">\`**荷兰***要*\`</span>`),
+    `<span class="${CHINESE_PINYIN_MARKER_CLASS}">\`**荷兰***要*\`</span>`
   );
 });
 
