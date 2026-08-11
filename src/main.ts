@@ -72,14 +72,25 @@ function appendRubyText(parent: HTMLElement, text: string, toPinyin: PinyinConve
     const ruby = document.createElement("ruby");
     ruby.className = "bc-ruby";
 
-    const base = document.createElement("span");
-    base.className = "bc-base";
-    base.textContent = hanzi;
+    // One base+rt pair per character so native ruby centers each syllable over
+    // its own character. Pinyin is converted for the whole run (keeps contextual
+    // tones), then split; fall back to one block if the counts don't line up.
+    const chars = [...hanzi];
+    const syllables = toPinyin(hanzi).split(/\s+/u).filter(Boolean);
+    const pairs = syllables.length === chars.length
+      ? chars.map((char, index) => [char, syllables[index]] as const)
+      : [[hanzi, syllables.join(" ")] as const];
 
-    const annotation = document.createElement("rt");
-    annotation.textContent = toPinyin(hanzi);
+    for (const [char, syllable] of pairs) {
+      const base = document.createElement("span");
+      base.className = "bc-base";
+      base.textContent = char;
 
-    ruby.append(base, annotation);
+      const annotation = document.createElement("rt");
+      annotation.textContent = syllable;
+
+      ruby.append(base, annotation);
+    }
     fragment.append(ruby);
     lastIndex = match.index + hanzi.length;
   }
@@ -228,10 +239,10 @@ async function renderPinyin(
 
 function removePinyin(element: HTMLElement): void {
   for (const ruby of element.querySelectorAll<HTMLElement>("ruby.bc-ruby")) {
-    const base = Array.from(ruby.children).find((child) =>
+    const bases = Array.from(ruby.children).filter((child) =>
       child.classList.contains("bc-base")
     );
-    if (base) ruby.replaceWith(...Array.from(base.childNodes));
+    ruby.replaceWith(...bases.flatMap((base) => Array.from(base.childNodes)));
   }
   delete element.dataset.bcPinyinProcessed;
   delete element.dataset.bcPinyinLoading;
