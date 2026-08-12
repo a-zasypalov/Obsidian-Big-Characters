@@ -47,7 +47,7 @@ const DEFAULT_SETTINGS: BigCharactersSettings = {
   characterFont: '"Kaiti SC", "STKaiti", "KaiTi", serif',
   pinyinSize: 0.35,
   rubyTopSpacing: 0.1,
-  pinyinFont: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif'
+  pinyinFont: 'sans-serif'
 };
 
 function markerSelector(scope: string): string {
@@ -664,7 +664,7 @@ class BigCharactersSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Ruby top spacing")
+      .setName("Pinyin top spacing")
       .setDesc("Extra space above pinyin annotations, relative to the character size.")
       .addSlider((slider) =>
         slider

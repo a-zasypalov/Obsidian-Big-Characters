@@ -3,7 +3,7 @@
   "name": "Big Characters",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Styles Chinese text with optional configurable ruby pinyin annotations.",
+  "description": "Styles Chinese text with optional pinyin annotations.",
   "author": "Artem Zasypalov",
   "isDesktopOnly": false
 }
