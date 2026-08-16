@@ -7,6 +7,7 @@ import {
   extractMarkerContents,
   markerSpanOpening
 } from "../src/marker";
+import { pinyin } from "../src/pinyin-engine";
 import { unwrapCompleteMarker, wrapSelection } from "../src/selection";
 
 test("extracts raw marker source verbatim, including the adjacent bold/italic regression", () => {
@@ -71,4 +72,9 @@ test("keeps only the newest values in the bounded pronunciation cache", () => {
   assert.equal(cache.get("要"), undefined);
   assert.equal(cache.get("荷兰"), "hè lán");
   assert.equal(cache.get("三"), "sān");
+});
+
+test("uses Pinyin Pro's Traditional Chinese dictionary for contextual pronunciation", () => {
+  assert.equal(pinyin("一個轉盤", { toneType: "symbol" }), "yí gè zhuàn pán");
+  assert.equal(pinyin("一個转盘", { toneType: "symbol" }), "yí gè zhuàn pán");
 });

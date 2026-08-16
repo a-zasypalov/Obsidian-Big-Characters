@@ -5,7 +5,7 @@
     "inlineSources": true,
     "module": "ESNext",
     "target": "ES2020",
-    "moduleResolution": "Node",
+    "moduleResolution": "Bundler",
     "importHelpers": true,
     "isolatedModules": true,
     "strict": true,
