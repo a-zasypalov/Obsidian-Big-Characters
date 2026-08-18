@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BoundedStringCache } from "../src/bounded-cache";
-import { CHINESE_CODE_BLOCK_LANGUAGES, codeBlockClass } from "../src/chinese-code-block";
+import {
+  CHINESE_CODE_BLOCK_LANGUAGES,
+  CHINESE_PINYIN_CODE_BLOCK_SELECTOR,
+  codeBlockClass
+} from "../src/chinese-code-block";
 import {
   CHINESE_MARKER_CLASS,
   CHINESE_PINYIN_MARKER_CLASS,
@@ -16,6 +20,7 @@ test("maps Chinese fenced-block languages to their display modes", () => {
   assert.deepEqual(CHINESE_CODE_BLOCK_LANGUAGES, ["zh-cn", "zh-cn-pinyin"]);
   assert.equal(codeBlockClass("zh-cn"), CHINESE_MARKER_CLASS);
   assert.equal(codeBlockClass("zh-cn-pinyin"), CHINESE_PINYIN_MARKER_CLASS);
+  assert.equal(CHINESE_PINYIN_CODE_BLOCK_SELECTOR, ".bc-code-block.bc-zh-cn-pinyin");
 });
 
 test("extracts raw marker source verbatim, including the adjacent bold/italic regression", () => {

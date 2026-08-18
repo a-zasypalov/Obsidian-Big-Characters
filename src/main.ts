@@ -8,7 +8,11 @@ import {
   type MarkdownPostProcessorContext
 } from "obsidian";
 import { BoundedStringCache } from "./bounded-cache";
-import { CHINESE_CODE_BLOCK_LANGUAGES, codeBlockClass } from "./chinese-code-block";
+import {
+  CHINESE_CODE_BLOCK_LANGUAGES,
+  CHINESE_PINYIN_CODE_BLOCK_SELECTOR,
+  codeBlockClass
+} from "./chinese-code-block";
 import {
   CHINESE_MARKER_CLASS,
   type GuideMarkerClass,
@@ -54,7 +58,7 @@ const DEFAULT_SETTINGS: BigCharactersSettings = {
 };
 
 function markerSelector(scope: string): string {
-  return `${scope} ${CHINESE_PINYIN_MARKER_SELECTOR}`;
+  return `${scope} ${CHINESE_PINYIN_MARKER_SELECTOR}, ${scope} ${CHINESE_PINYIN_CODE_BLOCK_SELECTOR}`;
 }
 
 function hasHanzi(text: string): boolean {
@@ -634,7 +638,9 @@ export default class BigCharactersPlugin extends Plugin {
   }
 
   private renderLivePreviewRoot(root: HTMLElement): void {
-    for (const marker of root.querySelectorAll<HTMLElement>(GUIDE_MARKER_SELECTOR)) {
+    for (const marker of root.querySelectorAll<HTMLElement>(
+      `${GUIDE_MARKER_SELECTOR}, ${CHINESE_PINYIN_CODE_BLOCK_SELECTOR}`
+    )) {
       const isActiveLine = marker.closest(".cm-activeLine") !== null;
       if (!marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
         if (!isActiveLine) renderLivePreviewEmphasis(marker);
