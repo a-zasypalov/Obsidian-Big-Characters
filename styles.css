@@ -18,13 +18,12 @@
 }
 
 .bc-code-block {
-  display: block;
-  margin: 0 0 var(--bc-character-bottom-spacing, 0.3em) !important;
   white-space: pre-wrap;
+  line-height: 1.4em;
 }
 
 .bc-code-block.bc-zh-cn-pinyin {
-  margin-top: var(--bc-ruby-top-spacing, 0em) !important;
+  line-height: 1.9em;
 }
 
 .bc-ruby {

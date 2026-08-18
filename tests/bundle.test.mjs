@@ -13,3 +13,12 @@ test("bundles the lazy pinyin engine into the Community Plugin release file", as
 
   await assert.rejects(stat("pinyin-engine.js"), { code: "ENOENT" });
 });
+
+test("keeps fenced Chinese blocks on the inline-block layout path", async () => {
+  const css = await readFile("styles.css", "utf8");
+  const rule = css.match(/\.bc-code-block\s*\{([^}]*)\}/u)?.[1] ?? "";
+
+  // A display or margin override here re-collapses the block's margins with the
+  // surrounding paragraph margins, which silently discards the spacing settings.
+  assert.doesNotMatch(rule, /\b(display|margin)\b/u);
+});
