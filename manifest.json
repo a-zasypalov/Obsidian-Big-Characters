@@ -1,7 +1,7 @@
 {
   "id": "big-characters",
   "name": "Big Characters",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "minAppVersion": "1.5.0",
   "description": "Styles Chinese text with optional pinyin annotations.",
   "author": "Artem Zasypalov",

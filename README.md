@@ -10,6 +10,18 @@ Use `<span class="bc-zh-cn-pinyin">...</span>` when pinyin should be shown accor
 
 ![Chinese characters with pinyin](assets/chinese-characters-with-pinyin.png)
 
+Fenced blocks work too: use `zh-cn` for characters only or `zh-cn-pinyin` for annotations.
+
+````markdown
+```zh-cn
+你好，世界！
+```
+
+```zh-cn-pinyin
+我喜欢学习中文。
+```
+````
+
 Both markers support bold and italic text.
 
 ![Chinese characters with mixed styling](assets/chinese-characters-mixed-styling.png)

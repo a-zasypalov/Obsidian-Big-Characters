@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BoundedStringCache } from "../src/bounded-cache";
+import { CHINESE_CODE_BLOCK_LANGUAGES, codeBlockClass } from "../src/chinese-code-block";
 import {
   CHINESE_MARKER_CLASS,
   CHINESE_PINYIN_MARKER_CLASS,
@@ -10,6 +11,12 @@ import {
 import { collectContiguousHanziRuns } from "../src/hanzi-runs";
 import { pinyin } from "../src/pinyin-engine";
 import { unwrapCompleteMarker, wrapSelection } from "../src/selection";
+
+test("maps Chinese fenced-block languages to their display modes", () => {
+  assert.deepEqual(CHINESE_CODE_BLOCK_LANGUAGES, ["zh-cn", "zh-cn-pinyin"]);
+  assert.equal(codeBlockClass("zh-cn"), CHINESE_MARKER_CLASS);
+  assert.equal(codeBlockClass("zh-cn-pinyin"), CHINESE_PINYIN_MARKER_CLASS);
+});
 
 test("extracts raw marker source verbatim, including the adjacent bold/italic regression", () => {
   const source = `我上个月开车去<span class="${CHINESE_PINYIN_MARKER_CLASS}">**荷兰***要*三小时。</span>`;

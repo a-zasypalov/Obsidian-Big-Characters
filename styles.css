@@ -17,6 +17,16 @@
   margin-top: var(--bc-ruby-top-spacing, 0em);
 }
 
+.bc-code-block {
+  display: block;
+  margin: 0 0 var(--bc-character-bottom-spacing, 0.3em) !important;
+  white-space: pre-wrap;
+}
+
+.bc-code-block.bc-zh-cn-pinyin {
+  margin-top: var(--bc-ruby-top-spacing, 0em) !important;
+}
+
 .bc-ruby {
   /* Native ruby layout keeps the Hanzi on the text baseline. */
   ruby-position: over;

@@ -8,6 +8,7 @@ import {
   type MarkdownPostProcessorContext
 } from "obsidian";
 import { BoundedStringCache } from "./bounded-cache";
+import { CHINESE_CODE_BLOCK_LANGUAGES, codeBlockClass } from "./chinese-code-block";
 import {
   CHINESE_MARKER_CLASS,
   type GuideMarkerClass,
@@ -327,6 +328,11 @@ export default class BigCharactersPlugin extends Plugin {
     this.registerMarkdownPostProcessor((element, context) => {
       void this.processReadingSection(element, context);
     });
+    for (const language of CHINESE_CODE_BLOCK_LANGUAGES) {
+      this.registerMarkdownCodeBlockProcessor(language, (source, element) =>
+        this.renderChineseCodeBlock(element, source, codeBlockClass(language))
+      );
+    }
 
     this.app.workspace.onLayoutReady(() => {
       this.refreshLivePreviewObservers();
@@ -507,6 +513,18 @@ export default class BigCharactersPlugin extends Plugin {
     }
     if (pinyin && this.settings.showPinyinInReadingView) {
       void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
+    }
+  }
+
+  private renderChineseCodeBlock(
+    element: HTMLElement,
+    source: string,
+    markerClass: GuideMarkerClass
+  ): void {
+    element.classList.add("bc-code-block", markerClass);
+    element.replaceChildren(document.createTextNode(source));
+    if (markerClass === CHINESE_PINYIN_MARKER_CLASS && this.settings.showPinyinInReadingView) {
+      void this.renderMarker(element, () => this.settings.showPinyinInReadingView);
     }
   }
 
