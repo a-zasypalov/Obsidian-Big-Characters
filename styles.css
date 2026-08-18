@@ -19,11 +19,14 @@
 
 .bc-code-block {
   white-space: pre-wrap;
-  line-height: 1.4em;
+  line-height: calc(1em + var(--bc-character-bottom-spacing, 0.3em));
 }
 
 .bc-code-block.bc-zh-cn-pinyin {
-  line-height: 1.9em;
+  line-height: calc(
+    1em + var(--bc-character-bottom-spacing, 0.3em) +
+      var(--bc-ruby-top-spacing, 0.1em) + var(--bc-annotation-size, 0.35em)
+  );
 }
 
 .bc-ruby {
