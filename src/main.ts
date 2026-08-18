@@ -18,6 +18,7 @@ import {
   extractMarkerContents,
   markerSpanOpening
 } from "./marker";
+import { collectContiguousHanziRuns, type HanziTextSegment } from "./hanzi-runs";
 import { unwrapCompleteMarker, wrapSelection } from "./selection";
 import { createPinyinEngine } from "virtual:pinyin-engine";
 
@@ -27,6 +28,7 @@ const SETTINGS_SAVE_DELAY = 250;
 
 type PinyinFunction = (text: string, options: { toneType: "symbol" }) => string;
 type PinyinConverter = (text: string) => string;
+type PinyinAnnotations = Map<Text, Map<number, string>>;
 
 interface BigCharactersSettings {
   showPinyinInLivePreview: boolean;
@@ -58,7 +60,12 @@ function hasHanzi(text: string): boolean {
   return /\p{Script=Han}/u.test(text);
 }
 
-function appendRubyText(parent: HTMLElement, text: string, toPinyin: PinyinConverter): void {
+function appendRubyText(
+  parent: HTMLElement,
+  text: string,
+  toPinyin: PinyinConverter,
+  annotations?: Map<number, string>
+): void {
   const fragment = document.createDocumentFragment();
   let lastIndex = 0;
   HANZI_PATTERN.lastIndex = 0;
@@ -73,10 +80,21 @@ function appendRubyText(parent: HTMLElement, text: string, toPinyin: PinyinConve
     ruby.className = "bc-ruby";
 
     // One base+rt pair per character so native ruby centers each syllable over
-    // its own character. Pinyin is converted for the whole run (keeps contextual
-    // tones), then split; fall back to one block if the counts don't line up.
+    // its own character. Prefer the annotations calculated across adjacent
+    // formatted text; otherwise convert this Hanzi run directly.
     const chars = [...hanzi];
-    const syllables = toPinyin(hanzi).split(/\s+/u).filter(Boolean);
+    let offset = match.index;
+    const contextualSyllables = chars.map((char) => {
+      const syllable = annotations?.get(offset);
+      offset += char.length;
+      return syllable;
+    });
+    const hasContextualSyllables = contextualSyllables.every(
+      (syllable): syllable is string => syllable !== undefined
+    );
+    const syllables = hasContextualSyllables
+      ? contextualSyllables
+      : toPinyin(hanzi).split(/\s+/u).filter(Boolean);
     const pairs = syllables.length === chars.length
       ? chars.map((char, index) => [char, syllables[index]] as const)
       : [[hanzi, syllables.join(" ")] as const];
@@ -100,6 +118,33 @@ function appendRubyText(parent: HTMLElement, text: string, toPinyin: PinyinConve
   }
 
   parent.append(fragment);
+}
+
+function contextualPinyinAnnotations(
+  segments: readonly HanziTextSegment<Text>[],
+  toPinyin: PinyinConverter
+): PinyinAnnotations {
+  const annotations: PinyinAnnotations = new Map();
+
+  for (const run of collectContiguousHanziRuns(segments)) {
+    const chars = [...run.text];
+    const syllables = toPinyin(run.text).split(/\s+/u).filter(Boolean);
+    if (syllables.length !== chars.length) continue;
+
+    let syllableIndex = 0;
+    for (const part of run.parts) {
+      const nodeAnnotations = annotations.get(part.item) ?? new Map<number, string>();
+      let offset = part.start;
+      for (const char of part.text) {
+        nodeAnnotations.set(offset, syllables[syllableIndex]);
+        offset += char.length;
+        syllableIndex += 1;
+      }
+      annotations.set(part.item, nodeAnnotations);
+    }
+  }
+
+  return annotations;
 }
 
 function findEmphasisClosing(text: string, marker: string, from: number): number {
@@ -205,27 +250,28 @@ async function renderPinyin(
     renderLivePreviewEmphasis(element);
 
     const textNodes: Text[] = [];
-    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const parent = node.parentElement;
-        if (
-          !node.textContent ||
-          !hasHanzi(node.textContent) ||
-          parent?.closest("rt, code, pre, script, style")
-        ) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-
+    const segments: HanziTextSegment<Text>[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      textNodes.push(node as Text);
+      const textNode = node as Text;
+      const text = textNode.textContent ?? "";
+      const eligible =
+        Boolean(text) &&
+        hasHanzi(text) &&
+        !textNode.parentElement?.closest("rt, code, pre, script, style");
+      segments.push({ item: textNode, text, eligible });
+      if (eligible) textNodes.push(textNode);
     }
+    const annotations = contextualPinyinAnnotations(segments, toPinyin);
 
     for (const textNode of textNodes) {
       const wrapper = document.createElement("span");
-      appendRubyText(wrapper, textNode.textContent ?? "", toPinyin);
+      appendRubyText(
+        wrapper,
+        textNode.textContent ?? "",
+        toPinyin,
+        annotations.get(textNode)
+      );
       textNode.replaceWith(...Array.from(wrapper.childNodes));
     }
 

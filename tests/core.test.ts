@@ -7,6 +7,7 @@ import {
   extractMarkerContents,
   markerSpanOpening
 } from "../src/marker";
+import { collectContiguousHanziRuns } from "../src/hanzi-runs";
 import { pinyin } from "../src/pinyin-engine";
 import { unwrapCompleteMarker, wrapSelection } from "../src/selection";
 
@@ -72,6 +73,27 @@ test("keeps only the newest values in the bounded pronunciation cache", () => {
   assert.equal(cache.get("要"), undefined);
   assert.equal(cache.get("荷兰"), "hè lán");
   assert.equal(cache.get("三"), "sān");
+});
+
+test("keeps phrase context across bold and italic text nodes", () => {
+  const runs = collectContiguousHanziRuns([
+    { item: "plain", text: "妈妈回来", eligible: true },
+    { item: "bold", text: "了", eligible: true },
+    { item: "punctuation", text: "。", eligible: false },
+    { item: "italic", text: "我们", eligible: true }
+  ]);
+
+  assert.deepEqual(runs, [
+    {
+      text: "妈妈回来了",
+      parts: [
+        { item: "plain", start: 0, text: "妈妈回来" },
+        { item: "bold", start: 0, text: "了" }
+      ]
+    },
+    { text: "我们", parts: [{ item: "italic", start: 0, text: "我们" }] }
+  ]);
+  assert.equal(pinyin(runs[0].text, { toneType: "symbol" }), "mā ma huí lái le");
 });
 
 test("uses Pinyin Pro's Traditional Chinese dictionary for contextual pronunciation", () => {
