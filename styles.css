@@ -1,6 +1,8 @@
-/* Big Chinese characters, with or without pinyin. */
+/* Large Chinese and Korean text, with or without pronunciation. */
 .bc-zh-cn,
-.bc-zh-cn-pinyin {
+.bc-zh-cn-pinyin,
+.bc-ko-kr,
+.bc-ko-kr-rom {
   display: inline-block;
   font-family: var(
     --bc-character-font,
@@ -13,7 +15,8 @@
   vertical-align: baseline;
 }
 
-.bc-zh-cn-pinyin {
+.bc-zh-cn-pinyin,
+.bc-ko-kr-rom {
   margin-top: var(--bc-ruby-top-spacing, 0em);
 }
 
@@ -22,7 +25,8 @@
   line-height: calc(1em + var(--bc-character-bottom-spacing, 0.3em));
 }
 
-.bc-code-block.bc-zh-cn-pinyin {
+.bc-code-block.bc-zh-cn-pinyin,
+.bc-code-block.bc-ko-kr-rom {
   line-height: calc(
     1em + var(--bc-character-bottom-spacing, 0.3em) +
       var(--bc-ruby-top-spacing, 0.1em) + var(--bc-annotation-size, 0.35em)

@@ -1,6 +1,6 @@
 # Obsidian Big Characters
 
-An Obsidian plugin for styling Simplified and Traditional Chinese characters, with optional automatic ruby pinyin annotations.
+An Obsidian plugin for styling Simplified and Traditional Chinese characters, plus Korean text, with optional automatic ruby pronunciation annotations.
 
 Use `<span class="bc-zh-cn">...</span>` for Chinese characters without pinyin, such as a flashcard front side. This supports Simplified and Traditional Chinese.
 
@@ -10,7 +10,9 @@ Use `<span class="bc-zh-cn-pinyin">...</span>` when pinyin should be shown accor
 
 ![Chinese characters with pinyin](assets/chinese-characters-with-pinyin.png)
 
-Fenced blocks work too: use `zh-cn` for characters only or `zh-cn-pinyin` for annotations.
+Use `<span class="bc-ko-kr">...</span>` for large Korean text without annotations, or `<span class="bc-ko-kr-rom">...</span>` for offline Revised Romanization. Korean romanization follows pronunciation rules, so `같이` becomes `gachi` and `백마` becomes `baengma`.
+
+Fenced blocks work too: use `zh-cn` / `zh-cn-pinyin` for Chinese and `ko-kr` / `ko-kr-rom` for Korean.
 
 ````markdown
 ```zh-cn
@@ -20,9 +22,17 @@ Fenced blocks work too: use `zh-cn` for characters only or `zh-cn-pinyin` for an
 ```zh-cn-pinyin
 我喜欢学习中文。
 ```
+
+```ko-kr
+안녕하세요.
+```
+
+```ko-kr-rom
+같이 먹어요.
+```
 ````
 
-Both markers support bold and italic text.
+All markers support bold and italic text.
 
 ![Chinese characters with mixed styling](assets/chinese-characters-mixed-styling.png)
 
@@ -30,16 +40,16 @@ Both markers support bold and italic text.
 
 Assign shortcuts in Obsidian Settings → Hotkeys. 
 
-Use `Big Characters: Toggle selection as Chinese` to add or remove `bc-zh-cn`, or `Big Characters: Toggle selection as Chinese pinyin` for `bc-zh-cn-pinyin`.
+Use `Big Characters: Toggle selection as Chinese` or `Big Characters: Toggle selection as Korean` to add or remove their plain markers. Use the corresponding `… pinyin` or `… romanization` command for annotations.
 
 ## Settings
 
-The plugin’s settings lets you independently toggle pinyin in Live Preview and Reading View for `bc-zh-cn-pinyin`, and change the character and pinyin size/font. Restore defaults if custom values went too off.
+The plugin’s settings lets you independently toggle pronunciations in Live Preview and Reading View for `bc-zh-cn-pinyin` and `bc-ko-kr-rom`, and change the character and pronunciation size/font. Restore defaults if custom values went too off.
 
 ## Roadmap
 
 - [x] Support Traditional Chinese
-- [ ] Support Korean
+- [x] Support Korean
 - [ ] Support Japanese
   - [ ] Support Romanji
   - [ ] Support Furigana

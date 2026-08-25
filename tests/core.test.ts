@@ -2,25 +2,33 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BoundedStringCache } from "../src/bounded-cache";
 import {
-  CHINESE_CODE_BLOCK_LANGUAGES,
-  CHINESE_PINYIN_CODE_BLOCK_SELECTOR,
+  CODE_BLOCK_LANGUAGES,
+  PRONUNCIATION_CODE_BLOCK_SELECTOR,
   codeBlockClass
 } from "../src/chinese-code-block";
 import {
   CHINESE_MARKER_CLASS,
   CHINESE_PINYIN_MARKER_CLASS,
+  KOREAN_MARKER_CLASS,
+  KOREAN_ROM_MARKER_CLASS,
   extractMarkerContents,
   markerSpanOpening
 } from "../src/marker";
 import { collectContiguousHanziRuns } from "../src/hanzi-runs";
+import { romanizeKorean } from "../src/korean-engine";
 import { pinyin } from "../src/pinyin-engine";
 import { unwrapCompleteMarker, wrapSelection } from "../src/selection";
 
-test("maps Chinese fenced-block languages to their display modes", () => {
-  assert.deepEqual(CHINESE_CODE_BLOCK_LANGUAGES, ["zh-cn", "zh-cn-pinyin"]);
+test("maps Chinese and Korean fenced-block languages to their display modes", () => {
+  assert.deepEqual(CODE_BLOCK_LANGUAGES, ["zh-cn", "zh-cn-pinyin", "ko-kr", "ko-kr-rom"]);
   assert.equal(codeBlockClass("zh-cn"), CHINESE_MARKER_CLASS);
   assert.equal(codeBlockClass("zh-cn-pinyin"), CHINESE_PINYIN_MARKER_CLASS);
-  assert.equal(CHINESE_PINYIN_CODE_BLOCK_SELECTOR, ".bc-code-block.bc-zh-cn-pinyin");
+  assert.equal(codeBlockClass("ko-kr"), KOREAN_MARKER_CLASS);
+  assert.equal(codeBlockClass("ko-kr-rom"), KOREAN_ROM_MARKER_CLASS);
+  assert.equal(
+    PRONUNCIATION_CODE_BLOCK_SELECTOR,
+    ".bc-code-block.bc-zh-cn-pinyin, .bc-code-block.bc-ko-kr-rom"
+  );
 });
 
 test("extracts raw marker source verbatim, including the adjacent bold/italic regression", () => {
@@ -28,20 +36,22 @@ test("extracts raw marker source verbatim, including the adjacent bold/italic re
   const markers = extractMarkerContents(source);
 
   assert.equal(markers.length, 1);
-  assert.equal(markers[0].pinyin, true);
+  assert.equal(markers[0].markerClass, CHINESE_PINYIN_MARKER_CLASS);
   // The exact Markdown must survive untouched so Live Preview's parser can render it.
   assert.equal(markers[0].content, "**荷兰***要*三小时。");
 });
 
-test("extracts markers in document order and distinguishes pinyin from plain", () => {
+test("extracts markers in document order and retains their exact marker class", () => {
   const source =
     `<span class="${CHINESE_MARKER_CLASS}">大字</span> and ` +
-    `<span data-topic="travel" class="note ${CHINESE_PINYIN_MARKER_CLASS}">**荷兰**</span>`;
+    `<span data-topic="travel" class="note ${CHINESE_PINYIN_MARKER_CLASS}">**荷兰**</span> and ` +
+    `<span class="${KOREAN_ROM_MARKER_CLASS}">같이</span>`;
   const markers = extractMarkerContents(source);
 
   assert.deepEqual(markers, [
-    { content: "大字", pinyin: false },
-    { content: "**荷兰**", pinyin: true }
+    { content: "大字", markerClass: CHINESE_MARKER_CLASS },
+    { content: "**荷兰**", markerClass: CHINESE_PINYIN_MARKER_CLASS },
+    { content: "같이", markerClass: KOREAN_ROM_MARKER_CLASS }
   ]);
 });
 
@@ -73,6 +83,14 @@ test("wraps and unwraps a selected marker without changing its content", () => {
   assert.equal(
     markerSpanOpening(CHINESE_MARKER_CLASS),
     `<span class="${CHINESE_MARKER_CLASS}">`
+  );
+  assert.equal(
+    wrapSelection("같이", KOREAN_ROM_MARKER_CLASS),
+    `<span class="${KOREAN_ROM_MARKER_CLASS}">같이</span>`
+  );
+  assert.equal(
+    unwrapCompleteMarker(`<span class="${KOREAN_MARKER_CLASS}">같이</span>`, KOREAN_MARKER_CLASS),
+    "같이"
   );
 });
 
@@ -111,4 +129,10 @@ test("keeps phrase context across bold and italic text nodes", () => {
 test("uses Pinyin Pro's Traditional Chinese dictionary for contextual pronunciation", () => {
   assert.equal(pinyin("一個轉盤", { toneType: "symbol" }), "yí gè zhuàn pán");
   assert.equal(pinyin("一個转盘", { toneType: "symbol" }), "yí gè zhuàn pán");
+});
+
+test("uses the local Korean engine's pronunciation rules", () => {
+  assert.equal(romanizeKorean("한글"), "hangeul");
+  assert.equal(romanizeKorean("같이"), "gachi");
+  assert.equal(romanizeKorean("백마"), "baengma");
 });

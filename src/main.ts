@@ -9,30 +9,39 @@ import {
 } from "obsidian";
 import { BoundedStringCache } from "./bounded-cache";
 import {
-  CHINESE_CODE_BLOCK_LANGUAGES,
-  CHINESE_PINYIN_CODE_BLOCK_SELECTOR,
+  CODE_BLOCK_LANGUAGES,
+  PRONUNCIATION_CODE_BLOCK_SELECTOR,
   codeBlockClass
 } from "./chinese-code-block";
 import {
   CHINESE_MARKER_CLASS,
   type GuideMarkerClass,
+  GUIDE_MARKER_CLASSES,
   GUIDE_MARKER_SELECTOR,
   CHINESE_PINYIN_MARKER_CLASS,
   CHINESE_PINYIN_MARKER_SELECTOR,
+  KOREAN_MARKER_CLASS,
+  KOREAN_ROM_MARKER_CLASS,
+  KOREAN_ROM_MARKER_SELECTOR,
   SPAN_CLOSING,
   extractMarkerContents,
-  markerSpanOpening
+  markerSpanOpening,
+  pronunciationKind,
+  type PronunciationKind
 } from "./marker";
 import { collectContiguousHanziRuns, type HanziTextSegment } from "./hanzi-runs";
 import { unwrapCompleteMarker, wrapSelection } from "./selection";
 import { createPinyinEngine } from "virtual:pinyin-engine";
+import { createKoreanEngine } from "virtual:korean-engine";
 
 const HANZI_PATTERN = /\p{Script=Han}+/gu;
+const HANGUL_PATTERN = /[\uAC00-\uD7A3]+/gu;
 const PINYIN_CACHE_CAPACITY = 256;
 const SETTINGS_SAVE_DELAY = 250;
 
 type PinyinFunction = (text: string, options: { toneType: "symbol" }) => string;
 type PinyinConverter = (text: string) => string;
+type KoreanConverter = (text: string) => string;
 type PinyinAnnotations = Map<Text, Map<number, string>>;
 
 interface BigCharactersSettings {
@@ -58,14 +67,23 @@ const DEFAULT_SETTINGS: BigCharactersSettings = {
 };
 
 function markerSelector(scope: string): string {
-  return `${scope} ${CHINESE_PINYIN_MARKER_SELECTOR}, ${scope} ${CHINESE_PINYIN_CODE_BLOCK_SELECTOR}`;
+  return [
+    `${scope} ${CHINESE_PINYIN_MARKER_SELECTOR}`,
+    `${scope} ${KOREAN_ROM_MARKER_SELECTOR}`,
+    `${scope} .bc-code-block.${CHINESE_PINYIN_MARKER_CLASS}`,
+    `${scope} .bc-code-block.${KOREAN_ROM_MARKER_CLASS}`
+  ].join(", ");
 }
 
 function hasHanzi(text: string): boolean {
   return /\p{Script=Han}/u.test(text);
 }
 
-function appendRubyText(
+function hasHangul(text: string): boolean {
+  return /[\uAC00-\uD7A3]/u.test(text);
+}
+
+function appendPinyinRubyText(
   parent: HTMLElement,
   text: string,
   toPinyin: PinyinConverter,
@@ -116,6 +134,42 @@ function appendRubyText(
     }
     fragment.append(ruby);
     lastIndex = match.index + hanzi.length;
+  }
+
+  if (lastIndex < text.length) {
+    fragment.append(document.createTextNode(text.slice(lastIndex)));
+  }
+
+  parent.append(fragment);
+}
+
+function appendKoreanRubyText(
+  parent: HTMLElement,
+  text: string,
+  toRomanization: KoreanConverter
+): void {
+  const fragment = document.createDocumentFragment();
+  let lastIndex = 0;
+  HANGUL_PATTERN.lastIndex = 0;
+
+  for (let match = HANGUL_PATTERN.exec(text); match; match = HANGUL_PATTERN.exec(text)) {
+    if (match.index > lastIndex) {
+      fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
+    }
+
+    const ruby = document.createElement("ruby");
+    ruby.className = "bc-ruby";
+
+    const base = document.createElement("span");
+    base.className = "bc-base";
+    base.textContent = match[0];
+
+    const annotation = document.createElement("rt");
+    annotation.textContent = toRomanization(match[0]);
+
+    ruby.append(base, annotation);
+    fragment.append(ruby);
+    lastIndex = match.index + match[0].length;
   }
 
   if (lastIndex < text.length) {
@@ -231,25 +285,26 @@ function renderLivePreviewEmphasis(element: HTMLElement): void {
   }
 }
 
-async function renderPinyin(
+async function renderPronunciation(
   element: HTMLElement,
-  getPinyin: () => Promise<PinyinConverter>,
+  kind: PronunciationKind,
+  getConverter: () => Promise<PinyinConverter | KoreanConverter>,
   shouldRender: () => boolean
 ): Promise<void> {
   if (
-    element.dataset.bcPinyinProcessed === "true" ||
-    element.dataset.bcPinyinLoading === "true" ||
+    element.dataset.bcPronunciationProcessed === kind ||
+    element.dataset.bcPronunciationLoading === kind ||
     !shouldRender() ||
-    !hasHanzi(element.textContent ?? "")
+    !(kind === "pinyin" ? hasHanzi(element.textContent ?? "") : hasHangul(element.textContent ?? ""))
   ) {
     return;
   }
 
-  element.dataset.bcPinyinLoading = "true";
+  element.dataset.bcPronunciationLoading = kind;
   try {
-    const toPinyin = await getPinyin();
+    const converter = await getConverter();
     // Note: don't bail on !element.isConnected here. Reading View post-processes
-    // sections while still detached; once the engine is cached getPinyin resolves
+    // sections while still detached; once the engine is cached getConverter resolves
     // before attach, and skipping would leave scroll-loaded sections without ruby.
     if (!shouldRender()) return;
     renderLivePreviewEmphasis(element);
@@ -262,48 +317,58 @@ async function renderPinyin(
       const text = textNode.textContent ?? "";
       const eligible =
         Boolean(text) &&
-        hasHanzi(text) &&
+        (kind === "pinyin" ? hasHanzi(text) : hasHangul(text)) &&
         !textNode.parentElement?.closest("rt, code, pre, script, style");
-      segments.push({ item: textNode, text, eligible });
+      if (kind === "pinyin") segments.push({ item: textNode, text, eligible });
       if (eligible) textNodes.push(textNode);
     }
-    const annotations = contextualPinyinAnnotations(segments, toPinyin);
+    const annotations = kind === "pinyin"
+      ? contextualPinyinAnnotations(segments, converter as PinyinConverter)
+      : undefined;
 
     for (const textNode of textNodes) {
       const wrapper = document.createElement("span");
-      appendRubyText(
-        wrapper,
-        textNode.textContent ?? "",
-        toPinyin,
-        annotations.get(textNode)
-      );
+      if (kind === "pinyin") {
+        appendPinyinRubyText(
+          wrapper,
+          textNode.textContent ?? "",
+          converter as PinyinConverter,
+          annotations?.get(textNode)
+        );
+      } else {
+        appendKoreanRubyText(wrapper, textNode.textContent ?? "", converter as KoreanConverter);
+      }
       textNode.replaceWith(...Array.from(wrapper.childNodes));
     }
 
-    element.dataset.bcPinyinProcessed = "true";
+    element.dataset.bcPronunciationProcessed = kind;
   } catch {
-    // The original Hanzi remains readable if the local engine cannot load.
+    // The original text remains readable if the local engine cannot load.
   } finally {
-    delete element.dataset.bcPinyinLoading;
+    delete element.dataset.bcPronunciationLoading;
   }
 }
 
-function removePinyin(element: HTMLElement): void {
+function removePronunciation(element: HTMLElement): void {
   for (const ruby of element.querySelectorAll<HTMLElement>("ruby.bc-ruby")) {
     const bases = Array.from(ruby.children).filter((child) =>
       child.classList.contains("bc-base")
     );
     ruby.replaceWith(...bases.flatMap((base) => Array.from(base.childNodes)));
   }
+  delete element.dataset.bcPronunciationProcessed;
+  delete element.dataset.bcPronunciationLoading;
   delete element.dataset.bcPinyinProcessed;
   delete element.dataset.bcPinyinLoading;
 }
 
 export default class BigCharactersPlugin extends Plugin {
   settings: BigCharactersSettings = DEFAULT_SETTINGS;
-  private readonly pinyinCache = new BoundedStringCache(PINYIN_CACHE_CAPACITY);
+  private readonly pronunciationCache = new BoundedStringCache(PINYIN_CACHE_CAPACITY);
   private pinyinEnginePromise: Promise<PinyinFunction> | null = null;
   private pinyinLoadFailed = false;
+  private koreanEnginePromise: Promise<KoreanConverter> | null = null;
+  private koreanLoadFailed = false;
   private settingsSaveTimer: number | null = null;
   private readonly livePreviewObservers = new Map<HTMLElement, MutationObserver>();
   private readonly livePreviewRenderTimers = new Map<HTMLElement, number>();
@@ -328,13 +393,23 @@ export default class BigCharactersPlugin extends Plugin {
       name: "Toggle selection as Chinese",
       editorCallback: (editor) => this.toggleSelection(editor, CHINESE_MARKER_CLASS)
     });
+    this.addCommand({
+      id: "wrap-selection-as-korean-romanization",
+      name: "Toggle selection as Korean romanization",
+      editorCallback: (editor) => this.toggleSelection(editor, KOREAN_ROM_MARKER_CLASS)
+    });
+    this.addCommand({
+      id: "wrap-selection-as-korean",
+      name: "Toggle selection as Korean",
+      editorCallback: (editor) => this.toggleSelection(editor, KOREAN_MARKER_CLASS)
+    });
 
     this.registerMarkdownPostProcessor((element, context) => {
       void this.processReadingSection(element, context);
     });
-    for (const language of CHINESE_CODE_BLOCK_LANGUAGES) {
+    for (const language of CODE_BLOCK_LANGUAGES) {
       this.registerMarkdownCodeBlockProcessor(language, (source, element) =>
-        this.renderChineseCodeBlock(element, source, codeBlockClass(language))
+        this.renderCodeBlock(element, source, codeBlockClass(language))
       );
     }
 
@@ -343,7 +418,7 @@ export default class BigCharactersPlugin extends Plugin {
       this.registerEvent(
         this.app.workspace.on("layout-change", () => this.refreshLivePreviewObservers())
       );
-      this.refreshRenderedPinyin();
+      this.refreshRenderedPronunciation();
     });
   }
 
@@ -357,7 +432,7 @@ export default class BigCharactersPlugin extends Plugin {
     this.settings = { ...this.settings, ...settings };
     this.applySettings();
     this.scheduleSettingsSave();
-    if (visibilityChanged) this.refreshRenderedPinyin();
+    if (visibilityChanged) this.refreshRenderedPronunciation();
   }
 
   private async loadSettings(): Promise<void> {
@@ -405,11 +480,25 @@ export default class BigCharactersPlugin extends Plugin {
   private async getPinyinConverter(): Promise<PinyinConverter> {
     const pinyin = await this.loadPinyinEngine();
     return (text) => {
-      const cached = this.pinyinCache.get(text);
+      const cacheKey = `pinyin:${text}`;
+      const cached = this.pronunciationCache.get(cacheKey);
       if (cached !== undefined) return cached;
 
       const pronunciation = pinyin(text, { toneType: "symbol" });
-      this.pinyinCache.set(text, pronunciation);
+      this.pronunciationCache.set(cacheKey, pronunciation);
+      return pronunciation;
+    };
+  }
+
+  private async getKoreanConverter(): Promise<KoreanConverter> {
+    const romanize = await this.loadKoreanEngine();
+    return (text) => {
+      const cacheKey = `rom:${text}`;
+      const cached = this.pronunciationCache.get(cacheKey);
+      if (cached !== undefined) return cached;
+
+      const pronunciation = romanize(text);
+      this.pronunciationCache.set(cacheKey, pronunciation);
       return pronunciation;
     };
   }
@@ -432,6 +521,24 @@ export default class BigCharactersPlugin extends Plugin {
     return this.pinyinEnginePromise;
   }
 
+  private loadKoreanEngine(): Promise<KoreanConverter> {
+    if (this.koreanLoadFailed) {
+      return Promise.reject(new Error("The local Korean romanization engine could not be loaded."));
+    }
+    if (this.koreanEnginePromise) return this.koreanEnginePromise;
+
+    this.koreanEnginePromise = Promise.resolve()
+      .then(() => createKoreanEngine())
+      .catch((error: unknown) => {
+        this.koreanLoadFailed = true;
+        this.koreanEnginePromise = null;
+        new Notice("Big Characters could not start its local Korean romanization engine.");
+        throw error;
+      });
+
+    return this.koreanEnginePromise;
+  }
+
   private toggleSelection(
     editor: {
       getCursor(which?: "from" | "to"): { line: number; ch: number };
@@ -448,7 +555,7 @@ export default class BigCharactersPlugin extends Plugin {
   ): void {
     const selection = editor.getSelection();
     if (!selection) {
-      new Notice("Select Chinese text first.");
+      new Notice("Select text first.");
       return;
     }
 
@@ -498,37 +605,44 @@ export default class BigCharactersPlugin extends Plugin {
     const bySource = sources.length === markers.length;
 
     markers.forEach((marker, index) => {
-      const pinyin = marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS);
+      const markerClass = GUIDE_MARKER_CLASSES.find((className) => marker.classList.contains(className));
+      if (!markerClass) return;
       // Prefer the original source; fall back to the marker's existing content
       // when the source can't be recovered (e.g. getSectionInfo unavailable).
-      const source = bySource && sources[index].pinyin === pinyin ? sources[index] : null;
-      this.renderReadingMarker(marker, source?.content ?? null, pinyin);
+      const source = bySource && sources[index].markerClass === markerClass ? sources[index] : null;
+      this.renderReadingMarker(marker, source?.content ?? null, pronunciationKind(markerClass));
     });
   }
 
-  private renderReadingMarker(marker: HTMLElement, content: string | null, pinyin: boolean): void {
+  private renderReadingMarker(
+    marker: HTMLElement,
+    content: string | null,
+    kind: PronunciationKind | null
+  ): void {
     if (content !== null) {
       const wrapper = document.createElement("span");
       appendLivePreviewEmphasis(wrapper, content);
+      delete marker.dataset.bcPronunciationProcessed;
       delete marker.dataset.bcPinyinProcessed;
       marker.replaceChildren(...Array.from(wrapper.childNodes));
     } else {
       renderLivePreviewEmphasis(marker);
     }
-    if (pinyin && this.settings.showPinyinInReadingView) {
-      void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
+    if (kind && this.settings.showPinyinInReadingView) {
+      void this.renderMarker(marker, kind, () => this.settings.showPinyinInReadingView);
     }
   }
 
-  private renderChineseCodeBlock(
+  private renderCodeBlock(
     element: HTMLElement,
     source: string,
     markerClass: GuideMarkerClass
   ): void {
     element.classList.add("bc-code-block", markerClass);
     element.replaceChildren(document.createTextNode(source));
-    if (markerClass === CHINESE_PINYIN_MARKER_CLASS && this.settings.showPinyinInReadingView) {
-      void this.renderMarker(element, () => this.settings.showPinyinInReadingView);
+    const kind = pronunciationKind(markerClass);
+    if (kind && this.settings.showPinyinInReadingView) {
+      void this.renderMarker(element, kind, () => this.settings.showPinyinInReadingView);
     }
   }
 
@@ -539,18 +653,31 @@ export default class BigCharactersPlugin extends Plugin {
     ];
   }
 
-  private renderMarker(element: HTMLElement, shouldRender: () => boolean): Promise<void> {
-    return renderPinyin(element, () => this.getPinyinConverter(), shouldRender);
+  private renderMarker(
+    element: HTMLElement,
+    kind: PronunciationKind,
+    shouldRender: () => boolean
+  ): Promise<void> {
+    return renderPronunciation(
+      element,
+      kind,
+      kind === "pinyin" ? () => this.getPinyinConverter() : () => this.getKoreanConverter(),
+      shouldRender
+    );
   }
 
-  private refreshRenderedPinyin(): void {
+  private refreshRenderedPronunciation(): void {
     for (const marker of document.querySelectorAll<HTMLElement>(
       `${markerSelector(".markdown-preview-view")}, ${markerSelector(".markdown-reading-view")}`
     )) {
+      const markerClass = GUIDE_MARKER_CLASSES.find((className) => marker.classList.contains(className));
+      if (!markerClass) continue;
+      const kind = pronunciationKind(markerClass);
+      if (!kind) continue;
       if (this.settings.showPinyinInReadingView) {
-        void this.renderMarker(marker, () => this.settings.showPinyinInReadingView);
+        void this.renderMarker(marker, kind, () => this.settings.showPinyinInReadingView);
       } else {
-        removePinyin(marker);
+        removePronunciation(marker);
       }
     }
 
@@ -616,7 +743,7 @@ export default class BigCharactersPlugin extends Plugin {
       return (
         line.matches(GUIDE_MARKER_SELECTOR) ||
         line.querySelector(GUIDE_MARKER_SELECTOR) !== null ||
-        line.textContent?.includes(CHINESE_MARKER_CLASS) === true
+        GUIDE_MARKER_CLASSES.some((className) => line.textContent?.includes(className) === true)
       );
     }
 
@@ -639,15 +766,17 @@ export default class BigCharactersPlugin extends Plugin {
 
   private renderLivePreviewRoot(root: HTMLElement): void {
     for (const marker of root.querySelectorAll<HTMLElement>(
-      `${GUIDE_MARKER_SELECTOR}, ${CHINESE_PINYIN_CODE_BLOCK_SELECTOR}`
+      `${GUIDE_MARKER_SELECTOR}, ${PRONUNCIATION_CODE_BLOCK_SELECTOR}`
     )) {
       const isActiveLine = marker.closest(".cm-activeLine") !== null;
-      if (!marker.classList.contains(CHINESE_PINYIN_MARKER_CLASS)) {
+      const markerClass = GUIDE_MARKER_CLASSES.find((className) => marker.classList.contains(className));
+      const kind = markerClass ? pronunciationKind(markerClass) : null;
+      if (!kind) {
         if (!isActiveLine) renderLivePreviewEmphasis(marker);
       } else if (!this.settings.showPinyinInLivePreview || isActiveLine) {
-        removePinyin(marker);
+        removePronunciation(marker);
       } else {
-        void this.renderMarker(marker, () => this.settings.showPinyinInLivePreview);
+        void this.renderMarker(marker, kind, () => this.settings.showPinyinInLivePreview);
       }
     }
   }
@@ -670,8 +799,8 @@ class BigCharactersSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("Show pinyin in Live Preview")
-      .setDesc("Show ruby pinyin on rendered lines. The active line stays editable.")
+      .setName("Show pronunciations in Live Preview")
+      .setDesc("Show ruby pronunciations on rendered lines. The active line stays editable.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.showPinyinInLivePreview)
@@ -679,8 +808,8 @@ class BigCharactersSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Show pinyin in Reading View")
-      .setDesc("Show ruby pinyin in Reading View.")
+      .setName("Show pronunciations in Reading View")
+      .setDesc("Show ruby pronunciations in Reading View.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.showPinyinInReadingView)
@@ -689,7 +818,7 @@ class BigCharactersSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Character size")
-      .setDesc("Size of Hanzi, relative to the surrounding text.")
+      .setDesc("Size of marked characters, relative to the surrounding text.")
       .addSlider((slider) =>
         slider
           .setLimits(1, 5, 0.1)
@@ -723,8 +852,8 @@ class BigCharactersSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Pinyin size")
-      .setDesc("Size of pinyin, relative to the Hanzi.")
+      .setName("Pronunciation size")
+      .setDesc("Size of pronunciations, relative to marked characters.")
       .addSlider((slider) =>
         slider
           .setLimits(0.15, 0.75, 0.05)
@@ -734,8 +863,8 @@ class BigCharactersSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Pinyin top spacing")
-      .setDesc("Extra space above pinyin annotations, relative to the character size.")
+      .setName("Pronunciation top spacing")
+      .setDesc("Extra space above pronunciations, relative to the character size.")
       .addSlider((slider) =>
         slider
           .setLimits(0, 1, 0.05)
@@ -745,8 +874,8 @@ class BigCharactersSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Pinyin font")
-      .setDesc("A font name or CSS font stack for the pinyin annotation.")
+      .setName("Pronunciation font")
+      .setDesc("A font name or CSS font stack for pronunciation annotations.")
       .addText((text) =>
         text
           .setValue(this.plugin.settings.pinyinFont)
@@ -759,7 +888,7 @@ class BigCharactersSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Restore default font settings")
-      .setDesc("Restore the default character and pinyin fonts and sizes.")
+      .setDesc("Restore the default character and pronunciation fonts and sizes.")
       .addButton((button) =>
         button.setButtonText("Restore defaults").onClick(() => {
           this.plugin.updateSettings({
@@ -775,7 +904,7 @@ class BigCharactersSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Set hotkeys to toggle selected text to large characters")
       .setDesc(
-        "Assign shortcuts in Obsidian Settings → Hotkeys to toggle large characters and/or Pinyin."
+        "Assign shortcuts in Obsidian Settings → Hotkeys to toggle large characters and/or pronunciations."
       );
   }
 }
