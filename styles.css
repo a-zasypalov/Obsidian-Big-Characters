@@ -58,3 +58,7 @@
   line-height: 1;
   user-select: none;
 }
+
+.bc-ko-kr-rom .bc-ruby > rt {
+  margin-bottom: 1em;
+}
