@@ -25,10 +25,16 @@
   line-height: calc(1em + var(--bc-character-bottom-spacing, 0.3em));
 }
 
-.bc-code-block.bc-zh-cn-pinyin,
-.bc-code-block.bc-ko-kr-rom {
+.bc-code-block.bc-zh-cn-pinyin {
   line-height: calc(
     1em + var(--bc-character-bottom-spacing, 0.3em) +
+      var(--bc-ruby-top-spacing, 0.1em) + var(--bc-annotation-size, 0.35em)
+  );
+}
+
+.bc-code-block.bc-ko-kr-rom {
+  line-height: calc(
+    1.2em + var(--bc-character-bottom-spacing, 0.3em) +
       var(--bc-ruby-top-spacing, 0.1em) + var(--bc-annotation-size, 0.35em)
   );
 }
@@ -60,5 +66,5 @@
 }
 
 .bc-ko-kr-rom .bc-ruby > rt {
-  margin-bottom: 1em;
+  margin-bottom: 0.7em;
 }
