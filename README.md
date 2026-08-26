@@ -1,16 +1,18 @@
 # Obsidian Big Characters
 
-An Obsidian plugin for styling Simplified and Traditional Chinese characters, plus Korean text, with optional automatic ruby pronunciation annotations.
+An Obsidian plugin for styling Chinese (Simplified and Traditional) Korean characters, with optional automatic ruby pronunciation annotations.
 
 Use `<span class="bc-zh-cn">...</span>` for Chinese characters without pinyin, such as a flashcard front side. This supports Simplified and Traditional Chinese.
 
 ![Chinese characters without pinyin](assets/chinese-characters.png)
 
-Use `<span class="bc-zh-cn-pinyin">...</span>` when pinyin should be shown according to the plugin’s Reading View and Live Preview settings. Traditional Chinese uses Pinyin Pro’s Traditional dictionary for contextual pronunciation (for example, `轉盤` → `zhuàn pán`).
+For Korean characters use `<span class="bc-ko-kr">...</span>`.
 
-![Chinese characters with pinyin](assets/chinese-characters-with-pinyin.png)
+When pinyin should be shown, use `<span class="bc-zh-cn-pinyin">...</span>`. Traditional Chinese uses Pinyin Pro’s Traditional dictionary for contextual pronunciation (for example, `轉盤` → `zhuàn pán`).
 
-Use `<span class="bc-ko-kr">...</span>` for large Korean text without annotations, or `<span class="bc-ko-kr-rom">...</span>` for offline Revised Romanization. Korean romanization follows pronunciation rules, so `같이` becomes `gachi` and `백마` becomes `baengma`.
+Korean characters with pronunciation use `<span class="bc-ko-kr-rom">...</span>`. Korean romanization follows pronunciation rules, so `같이` becomes `gachi` and `백마` becomes `baengma`.
+
+![Chinese characters with pinyin](assets/characters-with-pronunciation.png)
 
 Fenced blocks work too: use `zh-cn` / `zh-cn-pinyin` for Chinese and `ko-kr` / `ko-kr-rom` for Korean.
 
@@ -40,7 +42,7 @@ All markers support bold and italic text.
 
 Assign shortcuts in Obsidian Settings → Hotkeys. 
 
-Use `Big Characters: Toggle selection as Chinese` or `Big Characters: Toggle selection as Korean` to add or remove their plain markers. Use the corresponding `… pinyin` or `… romanization` command for annotations.
+Use `Big Characters: Toggle selection as ...` to add or remove their plain markers. Use the corresponding `… pinyin` or `… romanization` command for annotated styles.
 
 ## Settings
 
