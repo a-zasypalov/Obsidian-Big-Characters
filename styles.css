@@ -1,8 +1,11 @@
-/* Large Chinese and Korean text, with or without pronunciation. */
+/* Large Chinese, Korean, and Japanese text, with or without pronunciation. */
 .bc-zh-cn,
 .bc-zh-cn-pinyin,
 .bc-ko-kr,
-.bc-ko-kr-rom {
+.bc-ko-kr-rom,
+.bc-ja-jp,
+.bc-ja-jp-romaji,
+.bc-ja-jp-furigana {
   display: inline-block;
   font-family: var(
     --bc-character-font,
@@ -16,7 +19,9 @@
 }
 
 .bc-zh-cn-pinyin,
-.bc-ko-kr-rom {
+.bc-ko-kr-rom,
+.bc-ja-jp-romaji,
+.bc-ja-jp-furigana {
   margin-top: var(--bc-ruby-top-spacing, 0em);
 }
 
@@ -25,7 +30,9 @@
   line-height: calc(1em + var(--bc-character-bottom-spacing, 0.3em));
 }
 
-.bc-code-block.bc-zh-cn-pinyin {
+.bc-code-block.bc-zh-cn-pinyin,
+.bc-code-block.bc-ja-jp-romaji,
+.bc-code-block.bc-ja-jp-furigana {
   line-height: calc(
     1em + var(--bc-character-bottom-spacing, 0.3em) +
       var(--bc-ruby-top-spacing, 0.1em) + var(--bc-annotation-size, 0.35em)

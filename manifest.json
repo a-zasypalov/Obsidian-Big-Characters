@@ -1,9 +1,9 @@
 {
   "id": "big-characters",
   "name": "Big Characters",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "minAppVersion": "1.5.0",
-  "description": "Styles Chinese and Korean text with optional pronunciation annotations.",
+  "description": "Styles Chinese, Korean, and Japanese text with optional pronunciation annotations.",
   "author": "Artem Zasypalov",
   "isDesktopOnly": false
 }

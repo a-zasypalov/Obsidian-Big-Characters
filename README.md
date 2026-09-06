@@ -1,6 +1,6 @@
 # Obsidian Big Characters
 
-An Obsidian plugin for styling Chinese (Simplified and Traditional) Korean characters, with optional automatic ruby pronunciation annotations.
+An Obsidian plugin for styling Chinese (Simplified and Traditional), Korean, and Japanese text, with optional automatic ruby pronunciation annotations.
 
 Use `<span class="bc-zh-cn">...</span>` for Chinese characters without pinyin, such as a flashcard front side. This supports Simplified and Traditional Chinese.
 
@@ -12,9 +12,17 @@ When pinyin should be shown, use `<span class="bc-zh-cn-pinyin">...</span>`. Tra
 
 Korean characters with pronunciation use `<span class="bc-ko-kr-rom">...</span>`. Korean romanization follows pronunciation rules, so `같이` becomes `gachi` and `백마` becomes `baengma`.
 
+Japanese has three modes:
+
+- `<span class="bc-ja-jp">...</span>` styles text without pronunciation.
+- `<span class="bc-ja-jp-romaji">...</span>` adds local Hepburn romaji above every Japanese token, including kana. For example, `座って` becomes `suwatte`.
+- `<span class="bc-ja-jp-furigana">...</span>` adds hiragana only above kanji. In `食べる`, only `食` receives `た`; the okurigana remains ordinary text.
+
+Japanese readings use the bundled IPADIC dictionary. The engine and dictionary load only when a romaji or furigana marker is rendered, and make no network requests.
+
 ![Chinese characters with pinyin](assets/characters-with-pronunciation.png)
 
-Fenced blocks work too: use `zh-cn` / `zh-cn-pinyin` for Chinese and `ko-kr` / `ko-kr-rom` for Korean.
+Fenced blocks work too: use `zh-cn` / `zh-cn-pinyin` for Chinese, `ko-kr` / `ko-kr-rom` for Korean, and `ja-jp` / `ja-jp-romaji` / `ja-jp-furigana` for Japanese.
 
 ````markdown
 ```zh-cn
@@ -32,6 +40,18 @@ Fenced blocks work too: use `zh-cn` / `zh-cn-pinyin` for Chinese and `ko-kr` / `
 ```ko-kr-rom
 같이 먹어요.
 ```
+
+```ja-jp
+日本語を勉強します。
+```
+
+```ja-jp-romaji
+座ってください。
+```
+
+```ja-jp-furigana
+日本語を勉強します。
+```
 ````
 
 All markers support bold and italic text.
@@ -42,17 +62,19 @@ All markers support bold and italic text.
 
 Assign shortcuts in Obsidian Settings → Hotkeys. 
 
-Use `Big Characters: Toggle selection as ...` to add or remove their plain markers. Use the corresponding `… pinyin` or `… romanization` command for annotated styles.
+Use `Big Characters: Toggle selection as ...` to add or remove plain markers. The corresponding pinyin, romanization, romaji, and furigana commands are separate hotkey entries.
 
 ## Settings
 
-The plugin’s settings lets you independently toggle pronunciations in Live Preview and Reading View for `bc-zh-cn-pinyin` and `bc-ko-kr-rom`, and change the character and pronunciation size/font. Restore defaults if custom values went too off.
+The plugin’s settings let you independently toggle pronunciations in Live Preview and Reading View for every annotated mode, and change the shared character and pronunciation size/font. Restore defaults if custom values go too far.
 
 ## Roadmap
 
 - [x] Support Traditional Chinese
 - [x] Support Korean
-- [ ] Support Japanese
-  - [ ] Support Romanji
-  - [ ] Support Furigana
+- [x] Support Japanese
+  - [x] Support romaji
+  - [x] Support furigana
 - [ ] Support Cantonese
+
+Third-party license notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

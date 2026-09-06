@@ -1,5 +1,6 @@
 import esbuild from "esbuild";
 import { rm } from "node:fs/promises";
+import { resolve } from "node:path";
 
 const sharedOptions = {
   bundle: true,
@@ -9,7 +10,16 @@ const sharedOptions = {
   logLevel: "info"
 };
 
-const [pinyinEngine, koreanEngine] = await Promise.all([
+const kuromojiBrowserEntryPlugin = {
+  name: "kuromoji-browser-entry",
+  setup(build) {
+    build.onResolve({ filter: /^@faanau\/kuromoji$/ }, () => ({
+      path: resolve("node_modules/@faanau/kuromoji/src/kuromoji.js")
+    }));
+  }
+};
+
+const [pinyinEngine, koreanEngine, japaneseEngine] = await Promise.all([
   esbuild.build({
     ...sharedOptions,
     entryPoints: ["src/pinyin-engine.ts"],
@@ -23,13 +33,22 @@ const [pinyinEngine, koreanEngine] = await Promise.all([
     format: "iife",
     globalName: "CharactersPronunciationKorean",
     write: false
+  }),
+  esbuild.build({
+    ...sharedOptions,
+    entryPoints: ["src/japanese-engine-bundle.ts"],
+    format: "iife",
+    globalName: "CharactersPronunciationJapanese",
+    loader: { ".gz": "binary" },
+    plugins: [kuromojiBrowserEntryPlugin],
+    write: false
   })
 ]);
 
 const pronunciationFactoryPlugin = {
   name: "pronunciation-factory",
   setup(build) {
-    build.onResolve({ filter: /^virtual:(pinyin|korean)-engine$/ }, (args) => ({
+    build.onResolve({ filter: /^virtual:(pinyin|korean|japanese)-engine$/ }, (args) => ({
       path: args.path,
       namespace: "pronunciation-factory"
     }));
@@ -37,6 +56,12 @@ const pronunciationFactoryPlugin = {
       if (args.path === "virtual:pinyin-engine") {
         return {
           contents: `export const createPinyinEngine = () => {\n${pinyinEngine.outputFiles[0].text}\nreturn CharactersPronunciationPinyin.pinyin;\n};`,
+          loader: "js"
+        };
+      }
+      if (args.path === "virtual:japanese-engine") {
+        return {
+          contents: `export const loadJapaneseEngine = () => {\n${japaneseEngine.outputFiles[0].text}\nreturn CharactersPronunciationJapanese;\n};`,
           loader: "js"
         };
       }
@@ -58,5 +83,6 @@ await Promise.all([
     plugins: [pronunciationFactoryPlugin]
   }),
   rm("pinyin-engine.js", { force: true }),
-  rm("korean-engine.js", { force: true })
+  rm("korean-engine.js", { force: true }),
+  rm("japanese-engine.js", { force: true })
 ]);

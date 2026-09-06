@@ -1,13 +1,13 @@
-export class BoundedStringCache {
-  private readonly values = new Map<string, string>();
+export class BoundedCache<Value> {
+  private readonly values = new Map<string, Value>();
 
   constructor(private readonly capacity: number) {}
 
-  get(key: string): string | undefined {
+  get(key: string): Value | undefined {
     return this.values.get(key);
   }
 
-  set(key: string, value: string): void {
+  set(key: string, value: Value): void {
     if (this.values.has(key)) this.values.delete(key);
     this.values.set(key, value);
 

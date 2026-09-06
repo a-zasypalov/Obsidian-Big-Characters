@@ -3,19 +3,27 @@ export const CHINESE_MARKER_CLASS = "bc-zh-cn";
 export const CHINESE_PINYIN_MARKER_CLASS = "bc-zh-cn-pinyin";
 export const KOREAN_MARKER_CLASS = "bc-ko-kr";
 export const KOREAN_ROM_MARKER_CLASS = "bc-ko-kr-rom";
+export const JAPANESE_MARKER_CLASS = "bc-ja-jp";
+export const JAPANESE_ROMAJI_MARKER_CLASS = "bc-ja-jp-romaji";
+export const JAPANESE_FURIGANA_MARKER_CLASS = "bc-ja-jp-furigana";
 export const GUIDE_MARKER_CLASSES = [
   CHINESE_PINYIN_MARKER_CLASS,
   KOREAN_ROM_MARKER_CLASS,
+  JAPANESE_ROMAJI_MARKER_CLASS,
+  JAPANESE_FURIGANA_MARKER_CLASS,
   CHINESE_MARKER_CLASS,
-  KOREAN_MARKER_CLASS
+  KOREAN_MARKER_CLASS,
+  JAPANESE_MARKER_CLASS
 ] as const;
 export type GuideMarkerClass = (typeof GUIDE_MARKER_CLASSES)[number];
-export type PronunciationKind = "pinyin" | "rom";
+export type PronunciationKind = "pinyin" | "korean-romaji" | "japanese-romaji" | "furigana";
 export const GUIDE_MARKER_SELECTOR = GUIDE_MARKER_CLASSES.map((className) => `span.${className}`).join(
   ", "
 );
 export const CHINESE_PINYIN_MARKER_SELECTOR = `span.${CHINESE_PINYIN_MARKER_CLASS}`;
 export const KOREAN_ROM_MARKER_SELECTOR = `span.${KOREAN_ROM_MARKER_CLASS}`;
+export const JAPANESE_ROMAJI_MARKER_SELECTOR = `span.${JAPANESE_ROMAJI_MARKER_CLASS}`;
+export const JAPANESE_FURIGANA_MARKER_SELECTOR = `span.${JAPANESE_FURIGANA_MARKER_CLASS}`;
 export const SPAN_CLOSING = "</span>";
 
 const SPAN_PATTERN = /(<span\b[^>]*>)([\s\S]*?)(<\/span\s*>)/giu;
@@ -44,7 +52,9 @@ export function guideMarkerClass(tag: string): GuideMarkerClass | null {
 
 export function pronunciationKind(markerClass: GuideMarkerClass): PronunciationKind | null {
   if (markerClass === CHINESE_PINYIN_MARKER_CLASS) return "pinyin";
-  if (markerClass === KOREAN_ROM_MARKER_CLASS) return "rom";
+  if (markerClass === KOREAN_ROM_MARKER_CLASS) return "korean-romaji";
+  if (markerClass === JAPANESE_ROMAJI_MARKER_CLASS) return "japanese-romaji";
+  if (markerClass === JAPANESE_FURIGANA_MARKER_CLASS) return "furigana";
   return null;
 }
 

@@ -7,5 +7,5 @@ await esbuild.build({
   format: "cjs",
   platform: "node",
   target: "node20",
-  external: ["node:assert/strict", "node:test"]
+  external: ["@faanau/kuromoji", "happy-dom", "node:assert/strict", "node:test"]
 });

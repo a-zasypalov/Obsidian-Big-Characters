@@ -7,7 +7,7 @@ import {
   Setting,
   type MarkdownPostProcessorContext
 } from "obsidian";
-import { BoundedStringCache } from "./bounded-cache";
+import { BoundedCache } from "./bounded-cache";
 import {
   CODE_BLOCK_LANGUAGES,
   PRONUNCIATION_CODE_BLOCK_SELECTOR,
@@ -23,6 +23,11 @@ import {
   KOREAN_MARKER_CLASS,
   KOREAN_ROM_MARKER_CLASS,
   KOREAN_ROM_MARKER_SELECTOR,
+  JAPANESE_MARKER_CLASS,
+  JAPANESE_ROMAJI_MARKER_CLASS,
+  JAPANESE_ROMAJI_MARKER_SELECTOR,
+  JAPANESE_FURIGANA_MARKER_CLASS,
+  JAPANESE_FURIGANA_MARKER_SELECTOR,
   SPAN_CLOSING,
   extractMarkerContents,
   markerSpanOpening,
@@ -33,6 +38,10 @@ import { collectContiguousHanziRuns, type HanziTextSegment } from "./hanzi-runs"
 import { unwrapCompleteMarker, wrapSelection } from "./selection";
 import { createPinyinEngine } from "virtual:pinyin-engine";
 import { createKoreanEngine } from "virtual:korean-engine";
+import { loadJapaneseEngine } from "virtual:japanese-engine";
+import { ensureJapaneseDictionary } from "./japanese-dictionary";
+import type { JapaneseAnnotation, JapaneseEngine, JapaneseMode } from "./japanese-engine";
+import { applyJapaneseRuby, removeRubyAnnotations } from "./japanese-ruby";
 
 const HANZI_PATTERN = /\p{Script=Han}+/gu;
 const HANGUL_PATTERN = /[\uAC00-\uD7A3]+/gu;
@@ -70,8 +79,12 @@ function markerSelector(scope: string): string {
   return [
     `${scope} ${CHINESE_PINYIN_MARKER_SELECTOR}`,
     `${scope} ${KOREAN_ROM_MARKER_SELECTOR}`,
+    `${scope} ${JAPANESE_ROMAJI_MARKER_SELECTOR}`,
+    `${scope} ${JAPANESE_FURIGANA_MARKER_SELECTOR}`,
     `${scope} .bc-code-block.${CHINESE_PINYIN_MARKER_CLASS}`,
-    `${scope} .bc-code-block.${KOREAN_ROM_MARKER_CLASS}`
+    `${scope} .bc-code-block.${KOREAN_ROM_MARKER_CLASS}`,
+    `${scope} .bc-code-block.${JAPANESE_ROMAJI_MARKER_CLASS}`,
+    `${scope} .bc-code-block.${JAPANESE_FURIGANA_MARKER_CLASS}`
   ].join(", ");
 }
 
@@ -81,6 +94,15 @@ function hasHanzi(text: string): boolean {
 
 function hasHangul(text: string): boolean {
   return /[\uAC00-\uD7A3]/u.test(text);
+}
+
+function hasJapanese(text: string): boolean {
+  return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]/u.test(text);
+}
+
+function elementUsesPronunciationKind(element: HTMLElement, kind: PronunciationKind): boolean {
+  const markerClass = GUIDE_MARKER_CLASSES.find((className) => element.classList.contains(className));
+  return markerClass ? pronunciationKind(markerClass) === kind : false;
 }
 
 function appendPinyinRubyText(
@@ -287,7 +309,7 @@ function renderLivePreviewEmphasis(element: HTMLElement): void {
 
 async function renderPronunciation(
   element: HTMLElement,
-  kind: PronunciationKind,
+  kind: "pinyin" | "korean-romaji",
   getConverter: () => Promise<PinyinConverter | KoreanConverter>,
   shouldRender: () => boolean
 ): Promise<void> {
@@ -306,7 +328,11 @@ async function renderPronunciation(
     // Note: don't bail on !element.isConnected here. Reading View post-processes
     // sections while still detached; once the engine is cached getConverter resolves
     // before attach, and skipping would leave scroll-loaded sections without ruby.
-    if (!shouldRender()) return;
+    if (
+      element.dataset.bcPronunciationLoading !== kind ||
+      !shouldRender() ||
+      !elementUsesPronunciationKind(element, kind)
+    ) return;
     renderLivePreviewEmphasis(element);
 
     const textNodes: Text[] = [];
@@ -345,17 +371,48 @@ async function renderPronunciation(
   } catch {
     // The original text remains readable if the local engine cannot load.
   } finally {
-    delete element.dataset.bcPronunciationLoading;
+    if (element.dataset.bcPronunciationLoading === kind) {
+      delete element.dataset.bcPronunciationLoading;
+    }
+  }
+}
+
+async function renderJapanesePronunciation(
+  element: HTMLElement,
+  kind: "japanese-romaji" | "furigana",
+  getAnnotate: () => Promise<(text: string) => readonly JapaneseAnnotation[]>,
+  shouldRender: () => boolean
+): Promise<void> {
+  if (
+    element.dataset.bcPronunciationProcessed === kind ||
+    element.dataset.bcPronunciationLoading === kind ||
+    !shouldRender() ||
+    !hasJapanese(element.textContent ?? "")
+  ) return;
+
+  element.dataset.bcPronunciationLoading = kind;
+  try {
+    const annotate = await getAnnotate();
+    if (
+      element.dataset.bcPronunciationLoading !== kind ||
+      !shouldRender() ||
+      !elementUsesPronunciationKind(element, kind)
+    ) return;
+
+    renderLivePreviewEmphasis(element);
+    applyJapaneseRuby(element, annotate);
+    element.dataset.bcPronunciationProcessed = kind;
+  } catch {
+    // The original text remains readable if the local engine cannot load.
+  } finally {
+    if (element.dataset.bcPronunciationLoading === kind) {
+      delete element.dataset.bcPronunciationLoading;
+    }
   }
 }
 
 function removePronunciation(element: HTMLElement): void {
-  for (const ruby of element.querySelectorAll<HTMLElement>("ruby.bc-ruby")) {
-    const bases = Array.from(ruby.children).filter((child) =>
-      child.classList.contains("bc-base")
-    );
-    ruby.replaceWith(...bases.flatMap((base) => Array.from(base.childNodes)));
-  }
+  removeRubyAnnotations(element);
   delete element.dataset.bcPronunciationProcessed;
   delete element.dataset.bcPronunciationLoading;
   delete element.dataset.bcPinyinProcessed;
@@ -364,11 +421,15 @@ function removePronunciation(element: HTMLElement): void {
 
 export default class BigCharactersPlugin extends Plugin {
   settings: BigCharactersSettings = DEFAULT_SETTINGS;
-  private readonly pronunciationCache = new BoundedStringCache(PINYIN_CACHE_CAPACITY);
+  private readonly pronunciationCache = new BoundedCache<
+    string | readonly JapaneseAnnotation[]
+  >(PINYIN_CACHE_CAPACITY);
   private pinyinEnginePromise: Promise<PinyinFunction> | null = null;
   private pinyinLoadFailed = false;
   private koreanEnginePromise: Promise<KoreanConverter> | null = null;
   private koreanLoadFailed = false;
+  private japaneseEnginePromise: Promise<JapaneseEngine> | null = null;
+  private japaneseFailureNotified = false;
   private settingsSaveTimer: number | null = null;
   private readonly livePreviewObservers = new Map<HTMLElement, MutationObserver>();
   private readonly livePreviewRenderTimers = new Map<HTMLElement, number>();
@@ -402,6 +463,21 @@ export default class BigCharactersPlugin extends Plugin {
       id: "wrap-selection-as-korean",
       name: "Toggle selection as Korean",
       editorCallback: (editor) => this.toggleSelection(editor, KOREAN_MARKER_CLASS)
+    });
+    this.addCommand({
+      id: "wrap-selection-as-japanese",
+      name: "Toggle selection as Japanese",
+      editorCallback: (editor) => this.toggleSelection(editor, JAPANESE_MARKER_CLASS)
+    });
+    this.addCommand({
+      id: "wrap-selection-as-japanese-romaji",
+      name: "Toggle selection as Japanese romaji",
+      editorCallback: (editor) => this.toggleSelection(editor, JAPANESE_ROMAJI_MARKER_CLASS)
+    });
+    this.addCommand({
+      id: "wrap-selection-as-japanese-furigana",
+      name: "Toggle selection as Japanese furigana",
+      editorCallback: (editor) => this.toggleSelection(editor, JAPANESE_FURIGANA_MARKER_CLASS)
     });
 
     this.registerMarkdownPostProcessor((element, context) => {
@@ -482,7 +558,7 @@ export default class BigCharactersPlugin extends Plugin {
     return (text) => {
       const cacheKey = `pinyin:${text}`;
       const cached = this.pronunciationCache.get(cacheKey);
-      if (cached !== undefined) return cached;
+      if (typeof cached === "string") return cached;
 
       const pronunciation = pinyin(text, { toneType: "symbol" });
       this.pronunciationCache.set(cacheKey, pronunciation);
@@ -495,7 +571,7 @@ export default class BigCharactersPlugin extends Plugin {
     return (text) => {
       const cacheKey = `rom:${text}`;
       const cached = this.pronunciationCache.get(cacheKey);
-      if (cached !== undefined) return cached;
+      if (typeof cached === "string") return cached;
 
       const pronunciation = romanize(text);
       this.pronunciationCache.set(cacheKey, pronunciation);
@@ -512,10 +588,10 @@ export default class BigCharactersPlugin extends Plugin {
     this.pinyinEnginePromise = Promise.resolve()
       .then(() => createPinyinEngine())
       .catch((error: unknown) => {
-      this.pinyinLoadFailed = true;
-      this.pinyinEnginePromise = null;
-      new Notice("Big Characters could not start its local pinyin engine.");
-      throw error;
+        this.pinyinLoadFailed = true;
+        this.pinyinEnginePromise = null;
+        new Notice("Big Characters could not start its local pinyin engine.");
+        throw error;
       });
 
     return this.pinyinEnginePromise;
@@ -537,6 +613,53 @@ export default class BigCharactersPlugin extends Plugin {
       });
 
     return this.koreanEnginePromise;
+  }
+
+  private async getJapaneseAnnotator(
+    mode: JapaneseMode
+  ): Promise<(text: string) => readonly JapaneseAnnotation[]> {
+    const engine = await this.loadJapaneseEngine();
+    return (text) => {
+      const cacheKey = `japanese-${mode}:${text}`;
+      const cached = this.pronunciationCache.get(cacheKey);
+      if (cached && typeof cached !== "string") return cached;
+
+      const annotations = engine.annotate(text, mode);
+      this.pronunciationCache.set(cacheKey, annotations);
+      return annotations;
+    };
+  }
+
+  private loadJapaneseEngine(): Promise<JapaneseEngine> {
+    if (this.japaneseEnginePromise) return this.japaneseEnginePromise;
+
+    this.japaneseEnginePromise = Promise.resolve()
+      .then(async () => {
+        const pluginDirectory = this.manifest.dir;
+        if (!pluginDirectory) throw new Error("The plugin directory is unavailable.");
+
+        const bundle = loadJapaneseEngine();
+        const dictionaryDirectory = await ensureJapaneseDictionary(
+          this.app.vault.adapter,
+          pluginDirectory,
+          bundle.dictionaryVersion,
+          bundle.dictionaryFiles
+        );
+        const dictionaryEntryUrl = this.app.vault.adapter.getResourcePath(
+          `${dictionaryDirectory}/base.dat.gz`
+        );
+        return bundle.createJapaneseEngine(new URL(".", dictionaryEntryUrl).href);
+      })
+      .catch((error: unknown) => {
+        this.japaneseEnginePromise = null;
+        if (!this.japaneseFailureNotified) {
+          this.japaneseFailureNotified = true;
+          new Notice("Big Characters could not start its local Japanese pronunciation engine.");
+        }
+        throw error;
+      });
+
+    return this.japaneseEnginePromise;
   }
 
   private toggleSelection(
@@ -658,12 +781,26 @@ export default class BigCharactersPlugin extends Plugin {
     kind: PronunciationKind,
     shouldRender: () => boolean
   ): Promise<void> {
-    return renderPronunciation(
-      element,
-      kind,
-      kind === "pinyin" ? () => this.getPinyinConverter() : () => this.getKoreanConverter(),
-      shouldRender
-    );
+    switch (kind) {
+      case "pinyin":
+        return renderPronunciation(element, kind, () => this.getPinyinConverter(), shouldRender);
+      case "korean-romaji":
+        return renderPronunciation(element, kind, () => this.getKoreanConverter(), shouldRender);
+      case "japanese-romaji":
+        return renderJapanesePronunciation(
+          element,
+          kind,
+          () => this.getJapaneseAnnotator("romaji"),
+          shouldRender
+        );
+      case "furigana":
+        return renderJapanesePronunciation(
+          element,
+          kind,
+          () => this.getJapaneseAnnotator("furigana"),
+          shouldRender
+        );
+    }
   }
 
   private refreshRenderedPronunciation(): void {
@@ -772,10 +909,17 @@ export default class BigCharactersPlugin extends Plugin {
       const markerClass = GUIDE_MARKER_CLASSES.find((className) => marker.classList.contains(className));
       const kind = markerClass ? pronunciationKind(markerClass) : null;
       if (!kind) {
+        if (marker.dataset.bcPronunciationProcessed || marker.dataset.bcPronunciationLoading) {
+          removePronunciation(marker);
+        }
         if (!isActiveLine) renderLivePreviewEmphasis(marker);
       } else if (!this.settings.showPinyinInLivePreview || isActiveLine) {
         removePronunciation(marker);
       } else {
+        if (
+          marker.dataset.bcPronunciationProcessed &&
+          marker.dataset.bcPronunciationProcessed !== kind
+        ) removePronunciation(marker);
         void this.renderMarker(marker, kind, () => this.settings.showPinyinInLivePreview);
       }
     }
