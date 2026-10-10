@@ -9,7 +9,7 @@ async function waitForProcessed(element) {
     if (element.dataset.bcPronunciationProcessed) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  assert.fail("Japanese pronunciation did not finish rendering");
+  assert.fail("Pronunciation did not finish rendering");
 }
 
 test("keeps lazy pronunciation engines in main.js and Japanese dictionary files separate", async () => {
@@ -90,14 +90,15 @@ test("keeps fenced pronunciation blocks on the inline-block layout path", async 
   assert.match(css, /\.bc-ja-jp-furigana/u);
 });
 
-test("loads local dictionaries on demand, retries missing files, and shares the Japanese engine", async (t) => {
+async function createPluginFixture(t) {
   const main = await readFile("main.js", "utf8");
   const window = new Window();
   t.after(() => window.close());
-  let missingDictionary = true;
+  const dictionaryState = { missing: false };
   const fetches = [];
   const notices = [];
   const processors = new Map();
+  const postprocessors = [];
   const adapter = {
     getResourcePath(path) {
       return `app://local/${path}?1700000000000`;
@@ -115,7 +116,7 @@ test("loads local dictionaries on demand, retries missing files, and shares the 
     addCommand() {}
     addSettingTab() {}
     register() {}
-    registerMarkdownPostProcessor() {}
+    registerMarkdownPostProcessor(handler) { postprocessors.push(handler); }
     registerMarkdownCodeBlockProcessor(language, handler) {
       processors.set(language, handler);
     }
@@ -134,7 +135,7 @@ test("loads local dictionaries on demand, retries missing files, and shares the 
     assert.equal(resource.host, "local");
     assert.ok(resource.pathname.startsWith("/.obsidian/plugins/big-characters/japanese-dictionary/"));
     const name = resource.pathname.split("/").at(-1);
-    if (missingDictionary && name === "base.dat.gz") return new Response(null, { status: 404 });
+    if (dictionaryState.missing && name === "base.dat.gz") return new Response(null, { status: 404 });
     return new Response(await readFile(`japanese-dictionary/${name}`));
   };
   runInNewContext(main, {
@@ -181,7 +182,12 @@ test("loads local dictionaries on demand, retries missing files, and shares the 
     { dir: ".obsidian/plugins/big-characters" }
   );
   await plugin.onload();
+  return { plugin, window, processors, postprocessors, fetches, notices, dictionaryState };
+}
 
+test("loads local dictionaries on demand, retries missing files, and shares the Japanese engine", async (t) => {
+  const { plugin, window, processors, fetches, notices, dictionaryState } = await createPluginFixture(t);
+  dictionaryState.missing = true;
   const plain = window.document.createElement("div");
   processors.get("ja-jp")("日本語", plain);
   assert.equal(plain.textContent, "日本語");
@@ -193,7 +199,7 @@ test("loads local dictionaries on demand, retries missing files, and shares the 
   await assert.rejects(plugin.loadJapaneseEngine(), /Failed to load.*404/u);
   assert.equal(fetches.length, 24);
   assert.equal(notices.length, 1, "repeated failures must not repeat the notice");
-  missingDictionary = false;
+  dictionaryState.missing = false;
 
   const romaji = window.document.createElement("div");
   const furigana = window.document.createElement("div");
@@ -211,4 +217,161 @@ test("loads local dictionaries on demand, retries missing files, and shares the 
   assert.equal(cached.querySelector("rt")?.textContent, "suwatte");
   assert.equal(fetches.length, 36, "subsequent renders must reuse the engine");
   assert.equal(notices.length, 1);
+});
+
+
+test("export can await pronunciation, including a cold Japanese dictionary load", async (t) => {
+  for (const path of ["inline", "fenced"]) {
+    await t.test(path, async (t) => {
+      const { window, processors, postprocessors, fetches } = await createPluginFixture(t);
+      const element = window.document.createElement("div");
+      let completion;
+      if (path === "inline") {
+        element.innerHTML = '<span class="bc-ja-jp-romaji"><strong>座*</strong>って*</span>' +
+          '<span class="bc-ja-jp-furigana"><strong>食*</strong>べる*</span>';
+        completion = postprocessors[0](element, { getSectionInfo: () => null });
+      } else {
+        completion = processors.get("ja-jp-romaji")("**座***って*", element);
+      }
+      assert.equal(typeof completion?.then, "function", "Obsidian must receive the rendering promise");
+      await completion;
+      assert.deepEqual([...element.querySelectorAll("rt")].map((rt) => rt.textContent),
+        path === "inline" ? ["suwatte", "た"] : ["suwatte"]);
+      assert.equal(fetches.length, 12, "concurrent markers must share one dictionary load");
+    });
+  }
+});
+
+test("renders emphasis in every mode through inline and fenced rendering paths", async (t) => {
+  const { plugin, window, processors, postprocessors, notices } = await createPluginFixture(t);
+  const cases = [
+    ["zh-cn", "你好", "世界"],
+    ["zh-cn-pinyin", "你好", "世界"],
+    ["ko-kr", "같이", "먹어요"],
+    ["ko-kr-rom", "같이", "먹어요"],
+    ["ja-jp", "日本語", "勉強"],
+    ["ja-jp-romaji", "日本語", "勉強"],
+    ["ja-jp-furigana", "日本語", "勉強"]
+  ];
+  for (const [language, first, second] of cases) {
+    // Export fixtures captured from Obsidian 1.14.4's bundled Markdown parser.
+    for (const [source, expected, bold, italic, parsedHTML] of [
+      [`**${first}***${second}*`, first + second, first, second, `<strong>${first}*</strong>${second}*`],
+      [`*${first}***${second}**`, first + second, second, first, `*${first}<strong>*${second}</strong>`],
+      [`*${first} **${second}** ${first}*`, `${first} ${second} ${first}`, second, `${first} ${second} ${first}`, `<em>${first} <strong>${second}</strong> ${first}</em>`],
+      [`**${first} *${second}* ${first}**`, `${first} ${second} ${first}`, `${first} ${second} ${first}`, second, `<strong>${first} <em>${second}</em> ${first}</strong>`],
+      [`***${first}***${second}`, first + second, first, first, `<strong><em>${first}</em></strong>${second}`]
+    ]) {
+      for (const path of ["fenced", "reading-whole-note", "reading-section", "reading-export", "live-preview"]) {
+        await t.test(`${language}: ${source} (${path})`, async () => {
+          const element = window.document.createElement("div");
+          let marker = element;
+          if (path === "fenced") {
+            processors.get(language)(source, element);
+          } else {
+            marker = window.document.createElement("span");
+            marker.className = `bc-${language}`;
+            if (path === "reading-export") marker.innerHTML = parsedHTML;
+            else marker.textContent = source;
+            element.append(marker);
+            if (path.startsWith("reading")) {
+              const raw = `<span class="bc-${language}">${source}</span>`;
+              await postprocessors[0](element, {
+                getSectionInfo: () => path === "reading-export" ? null : ({
+                  text: path === "reading-section" ? raw : `Earlier paragraph\n${raw}`,
+                  lineStart: 1,
+                  lineEnd: 1
+                })
+              });
+            } else {
+              plugin.renderLivePreviewRoot(element);
+            }
+          }
+          if (["zh-cn-pinyin", "ko-kr-rom", "ja-jp-romaji", "ja-jp-furigana"].includes(language)) {
+            await waitForProcessed(marker);
+          }
+          const clone = marker.cloneNode(true);
+          for (const annotation of clone.querySelectorAll("rt")) annotation.remove();
+          assert.equal(clone.textContent, expected);
+          for (const [selector, expectedText] of [["strong", bold], ["em", italic]]) {
+            const walker = window.document.createTreeWalker(clone, window.NodeFilter.SHOW_TEXT);
+            let actual = "";
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              if (node.parentElement?.closest(selector)) actual += node.textContent;
+            }
+            assert.equal(actual, expectedText);
+          }
+        });
+      }
+    }
+  }
+
+  await t.test("Reading View fallback merges fragmented emphasis text", () => {
+    const marker = window.document.createElement("span");
+    marker.className = "bc-zh-cn";
+    marker.innerHTML = "<strong>荷兰</strong>";
+    for (const part of ["*", "要", "*"]) marker.append(window.document.createTextNode(part));
+    postprocessors[0](marker, { getSectionInfo: () => null });
+    assert.equal(marker.innerHTML, "<strong>荷兰</strong><em>要</em>");
+  });
+
+  await t.test("plain fenced emphasis works when pronunciation settings are disabled", () => {
+    plugin.settings.showPinyinInReadingView = false;
+    const element = window.document.createElement("div");
+    processors.get("ja-jp-furigana")("**食***べる*", element);
+    assert.equal(element.innerHTML, "<strong>食</strong><em>べる</em>");
+    assert.equal(element.querySelector("ruby"), null);
+    plugin.settings.showPinyinInReadingView = true;
+  });
+
+  await t.test("Reading View preserves existing HTML emphasis", async () => {
+    const marker = window.document.createElement("span");
+    marker.className = "bc-ja-jp-romaji";
+    marker.innerHTML = "<strong>座</strong><em>って</em>";
+    postprocessors[0](marker, {
+      getSectionInfo: () => ({
+        text: '<span class="bc-ja-jp-romaji"><strong>座</strong><em>って</em></span>',
+        lineStart: 0,
+        lineEnd: 0
+      })
+    });
+    await waitForProcessed(marker);
+    assert.equal(marker.querySelector("rt")?.textContent, "suwatte");
+    assert.equal(marker.querySelector("strong")?.textContent, "座");
+    assert.equal(marker.querySelector("em")?.textContent, "って");
+  });
+
+  for (const [language, source, expected] of [
+    ["ko-kr-rom", "같**이** 백*마*", ["gachi", "baengma"]],
+    ["ja-jp-romaji", "日**本***語* **座***って* **食***べる*", ["nihongo", "suwatte", "taberu"]],
+    ["ja-jp-furigana", "日**本***語* **座***って* **食***べる*", ["にほんご", "すわ", "た"]]
+  ]) {
+    for (const path of ["fenced", "reading", "reading-export", "live-preview"]) {
+      await t.test(`${language} preserves word readings across formatting (${path})`, async () => {
+        const element = window.document.createElement("div");
+        let marker = element;
+        if (path === "fenced") processors.get(language)(source, element);
+        else {
+          marker = window.document.createElement("span");
+          marker.className = `bc-${language}`;
+          if (path === "reading-export") {
+            marker.innerHTML = language === "ko-kr-rom"
+              ? "같<strong>이</strong> 백<em>마</em>"
+              : "日<strong>本*</strong>語* <strong>座*</strong>って* <strong>食*</strong>べる*";
+          } else marker.textContent = source;
+          element.append(marker);
+          if (path.startsWith("reading")) await postprocessors[0](element, {
+            getSectionInfo: () => path === "reading-export" ? null : ({ text: `<span class="bc-${language}">${source}</span>`, lineStart: 0, lineEnd: 0 })
+          });
+          else plugin.renderLivePreviewRoot(element);
+        }
+        await waitForProcessed(marker);
+        assert.deepEqual([...marker.querySelectorAll("rt")].map((rt) => rt.textContent), expected);
+        assert.ok(marker.querySelector("strong"));
+        assert.ok(marker.querySelector("em"));
+        assert.doesNotMatch(marker.textContent, /\*/u);
+      });
+    }
+  }
+  assert.deepEqual(notices, []);
 });

@@ -107,7 +107,7 @@ function applyAnnotation(
   range.insertNode(ruby);
 }
 
-export function applyJapaneseRuby(
+export function applyRubyAnnotations(
   root: HTMLElement,
   annotate: (text: string) => readonly JapaneseAnnotation[]
 ): void {

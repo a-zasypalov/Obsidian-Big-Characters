@@ -24,7 +24,8 @@ import { romanizeKorean } from "../src/korean-engine";
 import { pinyin } from "../src/pinyin-engine";
 import { unwrapCompleteMarker, wrapSelection } from "../src/selection";
 import { alignFurigana, createJapaneseEngine } from "../src/japanese-engine";
-import { applyJapaneseRuby, removeRubyAnnotations } from "../src/japanese-ruby";
+import { applyRubyAnnotations, removeRubyAnnotations } from "../src/japanese-ruby";
+import { appendEmphasis, renderEmphasis } from "../src/emphasis";
 
 test("maps all fenced-block languages to their display modes", () => {
   assert.deepEqual(CODE_BLOCK_LANGUAGES, [
@@ -227,12 +228,72 @@ test("applies Japanese ruby across formatting and removes it without changing ma
     marker.innerHTML = "日<strong>本</strong><em>語</em>";
     const original = marker.innerHTML;
 
-    applyJapaneseRuby(marker, () => [{ start: 0, end: 3, annotation: "にほんご" }]);
+    applyRubyAnnotations(marker, () => [{ start: 0, end: 3, annotation: "にほんご" }]);
     assert.equal(marker.querySelector("rt")?.textContent, "にほんご");
     assert.equal(marker.querySelector(".bc-base")?.innerHTML, original);
 
     removeRubyAnnotations(marker);
     assert.equal(marker.innerHTML, original);
+  } finally {
+    Object.assign(globalThis, previous);
+    window.close();
+  }
+});
+
+test("parses adjacent and nested emphasis without consuming neighboring markers", () => {
+  const window = new Window();
+  const previous = { document: globalThis.document, NodeFilter: globalThis.NodeFilter };
+  Object.assign(globalThis, { document: window.document, NodeFilter: window.NodeFilter });
+  try {
+    for (const [source, expected] of [
+      ["**荷兰***要*", "<strong>荷兰</strong><em>要</em>"],
+      ["*你好***世界**", "<em>你好</em><strong>世界</strong>"],
+      ["**你好 *世界* 妈妈**", "<strong>你好 <em>世界</em> 妈妈</strong>"],
+      ["*你好 **世界** 妈妈*", "<em>你好 <strong>世界</strong> 妈妈</em>"],
+      ["***你好***世界", "<strong><em>你好</em></strong>世界"],
+      ["日**本***語*", "日<strong>本</strong><em>語</em>"],
+      ["**座***って*", "<strong>座</strong><em>って</em>"],
+      ["**食***べる* 取**り**戻*す*", "<strong>食</strong><em>べる</em> 取<strong>り</strong>戻<em>す</em>"],
+      ["**你好**\n*世界*\n\n  ***妈妈***", "<strong>你好</strong>\n<em>世界</em>\n\n  <strong><em>妈妈</em></strong>"],
+      ["literal * and **unclosed", "literal * and **unclosed"],
+      ["2 * 3", "2 * 3"],
+      ["<img src=x onerror=alert(1)> **你好**", "&lt;img src=x onerror=alert(1)&gt; <strong>你好</strong>"]
+    ]) {
+      const element = window.document.createElement("span") as unknown as HTMLElement;
+      appendEmphasis(element, source);
+      assert.equal(element.innerHTML, expected, source);
+    }
+    const fragmented = window.document.createElement("span") as unknown as HTMLElement;
+    for (const part of ["*", "你好", "*"]) fragmented.append(document.createTextNode(part));
+    renderEmphasis(fragmented);
+    assert.equal(fragmented.innerHTML, "<em>你好</em>");
+    for (const [html, expected] of [
+      ["<strong>荷兰*</strong>要*", "<strong>荷兰</strong><em>要</em>"],
+      ["*荷兰<strong>*要</strong>", "<em>荷兰</em><strong>要</strong>"],
+      ["日<strong>本*</strong>語*", "日<strong>本</strong><em>語</em>"],
+      ['<a href="study"><strong>座*</strong>って*</a><code>**literal***text*</code>',
+        '<a href="study"><strong>座</strong><em>って</em></a><code>**literal***text*</code>'],
+      ['<strong class="manual">*你好*</strong><br><em>世界</em>',
+        '<strong class="manual"><em>你好</em></strong><br><em>世界</em>'],
+      ["*你好<code>skip</code>世界*", "*你好<code>skip</code>世界*"],
+      ['<ruby><span class="bc-base">**座***って*</span><rt>*suwatte*</rt></ruby>',
+        '<ruby><span class="bc-base">**座***って*</span><rt>*suwatte*</rt></ruby>']
+    ]) {
+      fragmented.innerHTML = html;
+      const code = fragmented.querySelector("code");
+      const link = fragmented.querySelector("a");
+      renderEmphasis(fragmented);
+      assert.equal(fragmented.innerHTML, expected, html);
+      renderEmphasis(fragmented);
+      assert.equal(fragmented.innerHTML, expected, "a second pass must preserve repaired markup");
+      assert.equal(fragmented.querySelector("code"), code);
+      assert.equal(fragmented.querySelector("a"), link);
+    }
+    const literal = document.createTextNode("literal * and **unclosed");
+    fragmented.replaceChildren(literal);
+    renderEmphasis(fragmented);
+    renderEmphasis(fragmented);
+    assert.equal(fragmented.firstChild, literal, "unmatched markers must not trigger repeated DOM replacements");
   } finally {
     Object.assign(globalThis, previous);
     window.close();

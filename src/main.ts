@@ -40,7 +40,8 @@ import { createPinyinEngine } from "virtual:pinyin-engine";
 import { createKoreanEngine } from "virtual:korean-engine";
 import { loadJapaneseEngine } from "virtual:japanese-engine";
 import type { JapaneseAnnotation, JapaneseEngine, JapaneseMode } from "./japanese-engine";
-import { applyJapaneseRuby, removeRubyAnnotations } from "./japanese-ruby";
+import { applyRubyAnnotations, removeRubyAnnotations } from "./japanese-ruby";
+import { appendEmphasis, renderEmphasis } from "./emphasis";
 
 const HANZI_PATTERN = /\p{Script=Han}+/gu;
 const HANGUL_PATTERN = /[\uAC00-\uD7A3]+/gu;
@@ -164,42 +165,6 @@ function appendPinyinRubyText(
   parent.append(fragment);
 }
 
-function appendKoreanRubyText(
-  parent: HTMLElement,
-  text: string,
-  toRomanization: KoreanConverter
-): void {
-  const fragment = document.createDocumentFragment();
-  let lastIndex = 0;
-  HANGUL_PATTERN.lastIndex = 0;
-
-  for (let match = HANGUL_PATTERN.exec(text); match; match = HANGUL_PATTERN.exec(text)) {
-    if (match.index > lastIndex) {
-      fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
-    }
-
-    const ruby = document.createElement("ruby");
-    ruby.className = "bc-ruby";
-
-    const base = document.createElement("span");
-    base.className = "bc-base";
-    base.textContent = match[0];
-
-    const annotation = document.createElement("rt");
-    annotation.textContent = toRomanization(match[0]);
-
-    ruby.append(base, annotation);
-    fragment.append(ruby);
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    fragment.append(document.createTextNode(text.slice(lastIndex)));
-  }
-
-  parent.append(fragment);
-}
-
 function contextualPinyinAnnotations(
   segments: readonly HanziTextSegment<Text>[],
   toPinyin: PinyinConverter
@@ -225,85 +190,6 @@ function contextualPinyinAnnotations(
   }
 
   return annotations;
-}
-
-function findEmphasisClosing(text: string, marker: string, from: number): number {
-  let closing = text.indexOf(marker, from);
-  while (closing !== -1 && !/\S/u.test(text[closing - 1] ?? "")) {
-    closing = text.indexOf(marker, closing + marker.length);
-  }
-  return closing;
-}
-
-function appendLivePreviewEmphasis(parent: HTMLElement, text: string): void {
-  const markerPattern = /\*{1,3}(?=\S)/g;
-  let cursor = 0;
-
-  while (cursor < text.length) {
-    markerPattern.lastIndex = cursor;
-    const opening = markerPattern.exec(text);
-    if (!opening) {
-      parent.append(document.createTextNode(text.slice(cursor)));
-      return;
-    }
-
-    const marker = opening[0];
-    const contentStart = opening.index + marker.length;
-    const closing = findEmphasisClosing(text, marker, contentStart);
-    if (closing === -1) {
-      parent.append(document.createTextNode(text.slice(cursor)));
-      return;
-    }
-
-    if (opening.index > cursor) {
-      parent.append(document.createTextNode(text.slice(cursor, opening.index)));
-    }
-
-    const content = text.slice(contentStart, closing);
-    if (marker === "*") {
-      const italic = document.createElement("em");
-      appendLivePreviewEmphasis(italic, content);
-      parent.append(italic);
-    } else if (marker === "**") {
-      const bold = document.createElement("strong");
-      appendLivePreviewEmphasis(bold, content);
-      parent.append(bold);
-    } else {
-      const bold = document.createElement("strong");
-      const italic = document.createElement("em");
-      appendLivePreviewEmphasis(italic, content);
-      bold.append(italic);
-      parent.append(bold);
-    }
-
-    cursor = closing + marker.length;
-  }
-}
-
-function renderLivePreviewEmphasis(element: HTMLElement): void {
-  const textNodes: Text[] = [];
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = node.parentElement;
-      if (
-        !/[\*]{1,3}/u.test(node.textContent ?? "") ||
-        parent?.closest("code, pre, rt, ruby, script, style")
-      ) {
-        return NodeFilter.FILTER_REJECT;
-      }
-      return NodeFilter.FILTER_ACCEPT;
-    }
-  });
-
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    textNodes.push(node as Text);
-  }
-
-  for (const textNode of textNodes) {
-    const wrapper = document.createElement("span");
-    appendLivePreviewEmphasis(wrapper, textNode.textContent ?? "");
-    textNode.replaceWith(...Array.from(wrapper.childNodes));
-  }
 }
 
 async function renderPronunciation(
@@ -332,7 +218,16 @@ async function renderPronunciation(
       !shouldRender() ||
       !elementUsesPronunciationKind(element, kind)
     ) return;
-    renderLivePreviewEmphasis(element);
+    renderEmphasis(element);
+    if (kind === "korean-romaji") {
+      applyRubyAnnotations(element, (text) => [...text.matchAll(HANGUL_PATTERN)].map((match) => ({
+        start: match.index,
+        end: match.index + match[0].length,
+        annotation: converter(match[0])
+      })));
+      element.dataset.bcPronunciationProcessed = kind;
+      return;
+    }
 
     const textNodes: Text[] = [];
     const segments: HanziTextSegment<Text>[] = [];
@@ -342,27 +237,16 @@ async function renderPronunciation(
       const text = textNode.textContent ?? "";
       const eligible =
         Boolean(text) &&
-        (kind === "pinyin" ? hasHanzi(text) : hasHangul(text)) &&
+        hasHanzi(text) &&
         !textNode.parentElement?.closest("rt, code, pre, script, style");
-      if (kind === "pinyin") segments.push({ item: textNode, text, eligible });
+      segments.push({ item: textNode, text, eligible });
       if (eligible) textNodes.push(textNode);
     }
-    const annotations = kind === "pinyin"
-      ? contextualPinyinAnnotations(segments, converter as PinyinConverter)
-      : undefined;
+    const annotations = contextualPinyinAnnotations(segments, converter);
 
     for (const textNode of textNodes) {
       const wrapper = document.createElement("span");
-      if (kind === "pinyin") {
-        appendPinyinRubyText(
-          wrapper,
-          textNode.textContent ?? "",
-          converter as PinyinConverter,
-          annotations?.get(textNode)
-        );
-      } else {
-        appendKoreanRubyText(wrapper, textNode.textContent ?? "", converter as KoreanConverter);
-      }
+      appendPinyinRubyText(wrapper, textNode.textContent ?? "", converter, annotations.get(textNode));
       textNode.replaceWith(...Array.from(wrapper.childNodes));
     }
 
@@ -398,8 +282,8 @@ async function renderJapanesePronunciation(
       !elementUsesPronunciationKind(element, kind)
     ) return;
 
-    renderLivePreviewEmphasis(element);
-    applyJapaneseRuby(element, annotate);
+    renderEmphasis(element);
+    applyRubyAnnotations(element, annotate);
     element.dataset.bcPronunciationProcessed = kind;
   } catch {
     // The original text remains readable if the local engine cannot load.
@@ -479,9 +363,9 @@ export default class BigCharactersPlugin extends Plugin {
       editorCallback: (editor) => this.toggleSelection(editor, JAPANESE_FURIGANA_MARKER_CLASS)
     });
 
-    this.registerMarkdownPostProcessor((element, context) => {
-      void this.processReadingSection(element, context);
-    });
+    this.registerMarkdownPostProcessor((element, context) =>
+      this.processReadingSection(element, context)
+    );
     for (const language of CODE_BLOCK_LANGUAGES) {
       this.registerMarkdownCodeBlockProcessor(language, (source, element) =>
         this.renderCodeBlock(element, source, codeBlockClass(language))
@@ -701,51 +585,49 @@ export default class BigCharactersPlugin extends Plugin {
     editor.replaceSelection(wrapSelection(selection, markerClass));
   }
 
-  private processReadingSection(
+  private async processReadingSection(
     element: HTMLElement,
     context: MarkdownPostProcessorContext
-  ): void {
+  ): Promise<void> {
     const markers = this.guideMarkers(element);
     if (!markers.length) return;
 
-    // Reading View renders the marker's inner Markdown through its own parser,
-    // which mangles emphasis next to CJK (e.g. `**荷兰***要*`). Re-render each
-    // marker from the original source with the same parser Live Preview uses.
-    // getSectionInfo().text is the whole note; slice out this section's lines.
+    // Recover the original span text before Obsidian's CJK emphasis parsing can change readings.
     const section = context.getSectionInfo(element);
-    const sources = section
+    let sources = section
       ? extractMarkerContents(
           section.text.split("\n").slice(section.lineStart, section.lineEnd + 1).join("\n")
         )
       : [];
+    if (section && sources.length !== markers.length) sources = extractMarkerContents(section.text);
     const bySource = sources.length === markers.length;
 
-    markers.forEach((marker, index) => {
+    await Promise.all(markers.map((marker, index) => {
       const markerClass = GUIDE_MARKER_CLASSES.find((className) => marker.classList.contains(className));
       if (!markerClass) return;
       // Prefer the original source; fall back to the marker's existing content
       // when the source can't be recovered (e.g. getSectionInfo unavailable).
       const source = bySource && sources[index].markerClass === markerClass ? sources[index] : null;
-      this.renderReadingMarker(marker, source?.content ?? null, pronunciationKind(markerClass));
-    });
+      return this.renderReadingMarker(marker, source?.content ?? null, pronunciationKind(markerClass));
+    }));
   }
 
   private renderReadingMarker(
     marker: HTMLElement,
     content: string | null,
     kind: PronunciationKind | null
-  ): void {
-    if (content !== null) {
+  ): Promise<void> | void {
+    if (content !== null && !/<\/?[a-z][^>]*>/iu.test(content)) {
       const wrapper = document.createElement("span");
-      appendLivePreviewEmphasis(wrapper, content);
+      appendEmphasis(wrapper, content);
       delete marker.dataset.bcPronunciationProcessed;
       delete marker.dataset.bcPinyinProcessed;
       marker.replaceChildren(...Array.from(wrapper.childNodes));
     } else {
-      renderLivePreviewEmphasis(marker);
+      renderEmphasis(marker);
     }
     if (kind && this.settings.showPinyinInReadingView) {
-      void this.renderMarker(marker, kind, () => this.settings.showPinyinInReadingView);
+      return this.renderMarker(marker, kind, () => this.settings.showPinyinInReadingView);
     }
   }
 
@@ -753,12 +635,13 @@ export default class BigCharactersPlugin extends Plugin {
     element: HTMLElement,
     source: string,
     markerClass: GuideMarkerClass
-  ): void {
+  ): Promise<void> | void {
     element.classList.add("bc-code-block", markerClass);
-    element.replaceChildren(document.createTextNode(source));
+    element.replaceChildren();
+    appendEmphasis(element, source);
     const kind = pronunciationKind(markerClass);
     if (kind && this.settings.showPinyinInReadingView) {
-      void this.renderMarker(element, kind, () => this.settings.showPinyinInReadingView);
+      return this.renderMarker(element, kind, () => this.settings.showPinyinInReadingView);
     }
   }
 
@@ -905,7 +788,7 @@ export default class BigCharactersPlugin extends Plugin {
         if (marker.dataset.bcPronunciationProcessed || marker.dataset.bcPronunciationLoading) {
           removePronunciation(marker);
         }
-        if (!isActiveLine) renderLivePreviewEmphasis(marker);
+        if (!isActiveLine) renderEmphasis(marker);
       } else if (!this.settings.showPinyinInLivePreview || isActiveLine) {
         removePronunciation(marker);
       } else {
