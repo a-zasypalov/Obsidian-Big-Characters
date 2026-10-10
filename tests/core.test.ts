@@ -24,7 +24,6 @@ import { romanizeKorean } from "../src/korean-engine";
 import { pinyin } from "../src/pinyin-engine";
 import { unwrapCompleteMarker, wrapSelection } from "../src/selection";
 import { alignFurigana, createJapaneseEngine } from "../src/japanese-engine";
-import { ensureJapaneseDictionary } from "../src/japanese-dictionary";
 import { applyJapaneseRuby, removeRubyAnnotations } from "../src/japanese-ruby";
 
 test("maps all fenced-block languages to their display modes", () => {
@@ -238,50 +237,4 @@ test("applies Japanese ruby across formatting and removes it without changing ma
     Object.assign(globalThis, previous);
     window.close();
   }
-});
-
-test("writes the Japanese dictionary marker last and retries partial extraction", async () => {
-  const files = {
-    "base.dat.gz": new Uint8Array([1]),
-    "check.dat.gz": new Uint8Array([2])
-  };
-  const existing = new Set<string>();
-  const writes: string[] = [];
-  let failOnce = true;
-  const adapter = {
-    async exists(path: string) {
-      return existing.has(path);
-    },
-    async mkdir(path: string) {
-      existing.add(path);
-    },
-    async write(path: string) {
-      writes.push(path);
-      existing.add(path);
-    },
-    async writeBinary(path: string) {
-      writes.push(path);
-      if (failOnce && path.endsWith("check.dat.gz")) {
-        failOnce = false;
-        throw new Error("interrupted");
-      }
-      existing.add(path);
-    }
-  };
-
-  await assert.rejects(
-    ensureJapaneseDictionary(adapter, ".obsidian/plugins/big-characters", "v1", files)
-  );
-  const directory = await ensureJapaneseDictionary(
-    adapter,
-    ".obsidian/plugins/big-characters",
-    "v1",
-    files
-  );
-  assert.equal(directory, ".obsidian/plugins/big-characters/japanese-dictionary/v1");
-  assert.ok(writes.at(-1)?.endsWith("/.complete"));
-
-  const writesAfterCompletion = writes.length;
-  await ensureJapaneseDictionary(adapter, ".obsidian/plugins/big-characters", "v1", files);
-  assert.equal(writes.length, writesAfterCompletion);
 });

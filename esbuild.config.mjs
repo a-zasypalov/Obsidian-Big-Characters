@@ -1,5 +1,5 @@
 import esbuild from "esbuild";
-import { rm } from "node:fs/promises";
+import { cp, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const sharedOptions = {
@@ -36,10 +36,9 @@ const [pinyinEngine, koreanEngine, japaneseEngine] = await Promise.all([
   }),
   esbuild.build({
     ...sharedOptions,
-    entryPoints: ["src/japanese-engine-bundle.ts"],
+    entryPoints: ["src/japanese-engine.ts"],
     format: "iife",
     globalName: "CharactersPronunciationJapanese",
-    loader: { ".gz": "binary" },
     plugins: [kuromojiBrowserEntryPlugin],
     write: false
   })
@@ -82,6 +81,7 @@ await Promise.all([
     external: ["obsidian"],
     plugins: [pronunciationFactoryPlugin]
   }),
+  cp("node_modules/@faanau/kuromoji/dict", "japanese-dictionary", { recursive: true }),
   rm("pinyin-engine.js", { force: true }),
   rm("korean-engine.js", { force: true }),
   rm("japanese-engine.js", { force: true })

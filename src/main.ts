@@ -39,7 +39,6 @@ import { unwrapCompleteMarker, wrapSelection } from "./selection";
 import { createPinyinEngine } from "virtual:pinyin-engine";
 import { createKoreanEngine } from "virtual:korean-engine";
 import { loadJapaneseEngine } from "virtual:japanese-engine";
-import { ensureJapaneseDictionary } from "./japanese-dictionary";
 import type { JapaneseAnnotation, JapaneseEngine, JapaneseMode } from "./japanese-engine";
 import { applyJapaneseRuby, removeRubyAnnotations } from "./japanese-ruby";
 
@@ -634,19 +633,13 @@ export default class BigCharactersPlugin extends Plugin {
     if (this.japaneseEnginePromise) return this.japaneseEnginePromise;
 
     this.japaneseEnginePromise = Promise.resolve()
-      .then(async () => {
+      .then(() => {
         const pluginDirectory = this.manifest.dir;
         if (!pluginDirectory) throw new Error("The plugin directory is unavailable.");
 
         const bundle = loadJapaneseEngine();
-        const dictionaryDirectory = await ensureJapaneseDictionary(
-          this.app.vault.adapter,
-          pluginDirectory,
-          bundle.dictionaryVersion,
-          bundle.dictionaryFiles
-        );
         const dictionaryEntryUrl = this.app.vault.adapter.getResourcePath(
-          `${dictionaryDirectory}/base.dat.gz`
+          `${pluginDirectory}/japanese-dictionary/base.dat.gz`
         );
         return bundle.createJapaneseEngine(new URL(".", dictionaryEntryUrl).href);
       })

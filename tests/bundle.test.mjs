@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { Window } from "happy-dom";
@@ -12,7 +12,7 @@ async function waitForProcessed(element) {
   assert.fail("Japanese pronunciation did not finish rendering");
 }
 
-test("bundles all lazy pronunciation engines and the Japanese dictionary into main.js", async () => {
+test("keeps lazy pronunciation engines in main.js and Japanese dictionary files separate", async () => {
   const [main, mainStats] = await Promise.all([readFile("main.js", "utf8"), stat("main.js")]);
 
   assert.doesNotMatch(main, /pinyin-engine\.js/u);
@@ -27,7 +27,7 @@ test("bundles all lazy pronunciation engines and the Japanese dictionary into ma
     "wrap-selection-as-japanese-romaji",
     "wrap-selection-as-japanese-furigana"
   ]) assert.match(main, new RegExp(command, "u"));
-  for (const name of [
+  const dictionaryNames = [
     "base.dat.gz",
     "cc.dat.gz",
     "check.dat.gz",
@@ -40,9 +40,16 @@ test("bundles all lazy pronunciation engines and the Japanese dictionary into ma
     "unk_invoke.dat.gz",
     "unk_map.dat.gz",
     "unk_pos.dat.gz"
-  ]) assert.match(main, new RegExp(name.replaceAll(".", "\\."), "u"));
-  assert.ok(mainStats.size > 20 * 1024 * 1024, `main.js is unexpectedly small: ${mainStats.size} bytes`);
-  assert.ok(mainStats.size < 26 * 1024 * 1024, `main.js is ${mainStats.size} bytes`);
+  ];
+  assert.deepEqual((await readdir("japanese-dictionary")).sort(), dictionaryNames.sort());
+  for (const name of dictionaryNames) {
+    assert.match(main, new RegExp(name.replaceAll(".", "\\."), "u"));
+    assert.deepEqual(
+      await readFile(`japanese-dictionary/${name}`),
+      await readFile(`node_modules/@faanau/kuromoji/dict/${name}`)
+    );
+  }
+  assert.ok(mainStats.size < 1024 * 1024, `main.js is ${mainStats.size} bytes`);
 
   const module = { exports: {} };
   const ObsidianClass = class {};
@@ -83,30 +90,15 @@ test("keeps fenced pronunciation blocks on the inline-block layout path", async 
   assert.match(css, /\.bc-ja-jp-furigana/u);
 });
 
-test("initializes the bundled Japanese engine from local adapter resources on first use", async () => {
+test("loads local dictionaries on demand, retries missing files, and shares the Japanese engine", async (t) => {
   const main = await readFile("main.js", "utf8");
   const window = new Window();
-  const files = new Map();
-  const directories = new Set();
-  const writes = [];
+  t.after(() => window.close());
+  let missingDictionary = true;
   const fetches = [];
   const notices = [];
   const processors = new Map();
   const adapter = {
-    async exists(path) {
-      return files.has(path) || directories.has(path);
-    },
-    async mkdir(path) {
-      directories.add(path);
-    },
-    async write(path, data) {
-      writes.push(path);
-      files.set(path, new TextEncoder().encode(data));
-    },
-    async writeBinary(path, data) {
-      writes.push(path);
-      files.set(path, new Uint8Array(data));
-    },
     getResourcePath(path) {
       return `app://local/${path}?1700000000000`;
     }
@@ -137,8 +129,13 @@ test("initializes the bundled Japanese engine from local adapter resources on fi
   const module = { exports: {} };
   const fetch = async (url) => {
     fetches.push(String(url));
-    const bytes = files.get(String(url).replace("app://local/", ""));
-    return bytes ? new Response(bytes) : new Response(null, { status: 404 });
+    const resource = new URL(url);
+    assert.equal(resource.protocol, "app:");
+    assert.equal(resource.host, "local");
+    assert.ok(resource.pathname.startsWith("/.obsidian/plugins/big-characters/japanese-dictionary/"));
+    const name = resource.pathname.split("/").at(-1);
+    if (missingDictionary && name === "base.dat.gz") return new Response(null, { status: 404 });
+    return new Response(await readFile(`japanese-dictionary/${name}`));
   };
   runInNewContext(main, {
     module,
@@ -187,22 +184,31 @@ test("initializes the bundled Japanese engine from local adapter resources on fi
 
   const plain = window.document.createElement("div");
   processors.get("ja-jp")("日本語", plain);
-  assert.equal(writes.length, 0);
+  assert.equal(plain.textContent, "日本語");
+  assert.equal(fetches.length, 0);
+
+  await assert.rejects(plugin.loadJapaneseEngine(), /Failed to load.*404/u);
+  assert.equal(fetches.length, 12);
+  assert.equal(notices.length, 1);
+  await assert.rejects(plugin.loadJapaneseEngine(), /Failed to load.*404/u);
+  assert.equal(fetches.length, 24);
+  assert.equal(notices.length, 1, "repeated failures must not repeat the notice");
+  missingDictionary = false;
 
   const romaji = window.document.createElement("div");
-  processors.get("ja-jp-romaji")("座って", romaji);
-  await waitForProcessed(romaji);
-  assert.equal(romaji.querySelector("rt")?.textContent, "suwatte");
-  assert.equal(writes.length, 13);
-  assert.ok(writes.at(-1).endsWith("/.complete"));
-  assert.ok(fetches.every((url) => url.startsWith("app://local/")));
-
   const furigana = window.document.createElement("div");
+  processors.get("ja-jp-romaji")("座って", romaji);
   processors.get("ja-jp-furigana")("食べる", furigana);
-  await waitForProcessed(furigana);
+  await Promise.all([waitForProcessed(romaji), waitForProcessed(furigana)]);
+  assert.equal(romaji.querySelector("rt")?.textContent, "suwatte");
   assert.equal(furigana.querySelector(".bc-base")?.textContent, "食");
   assert.equal(furigana.querySelector("rt")?.textContent, "た");
-  assert.equal(writes.length, 13);
-  assert.deepEqual(notices, []);
-  window.close();
+  assert.equal(fetches.length, 36, "concurrent renders must share one dictionary load");
+
+  const cached = window.document.createElement("div");
+  processors.get("ja-jp-romaji")("座って", cached);
+  await waitForProcessed(cached);
+  assert.equal(cached.querySelector("rt")?.textContent, "suwatte");
+  assert.equal(fetches.length, 36, "subsequent renders must reuse the engine");
+  assert.equal(notices.length, 1);
 });

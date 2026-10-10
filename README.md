@@ -18,7 +18,9 @@ Japanese has three modes:
 - `<span class="bc-ja-jp-romaji">...</span>` adds local Hepburn romaji above every Japanese token, including kana. For example, `座って` becomes `suwatte`.
 - `<span class="bc-ja-jp-furigana">...</span>` adds hiragana only above kanji. In `食べる`, only `食` receives `た`; the okurigana remains ordinary text.
 
-Japanese readings use the bundled IPADIC dictionary. The engine and dictionary load only when a romaji or furigana marker is rendered, and make no network requests.
+Japanese readings use the local IPADIC dictionary in `japanese-dictionary/`, separate from `main.js` so Obsidian does not read or parse dictionary data at startup. The dictionary is read only when a romaji or furigana marker is rendered, and makes no network requests.
+
+To install manually, run `npm ci` and `npm run build`, then copy `main.js`, `manifest.json`, `styles.css`, `THIRD_PARTY_NOTICES.md`, and the entire `japanese-dictionary/` folder into your vault’s `.obsidian/plugins/big-characters/` folder. Keep the dictionary folder when copying or syncing the plugin to another device.
 
 ![Chinese characters with pinyin](assets/characters-with-pronunciation.png)
 
